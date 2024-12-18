@@ -1,7 +1,7 @@
 {
   "name": "mcp-rtfm",
   "version": "0.1.0",
-  "description": "MCP server for intelligent documentation analysis, enhancement, and knowledge management - making project documentation actually readable",
+  "description": "Ever been told to RTFM only to find there's no FM to R? MCP-RTFM is the solution - it helps you CREATE the F*ing Manual that people keep telling everyone to read! Transform your non-existent or unreadable docs into an intelligent, searchable knowledge base that actually answers those 'basic questions' before they're asked.",
   "type": "module",
   "bin": {
     "mcp-rtfm": "./build/index.js"
@@ -39,7 +39,10 @@
     "metadata",
     "knowledge-base",
     "handoff",
-    "project-docs"
+    "project-docs",
+    "rtfm",
+    "documentation-tools",
+    "docs-as-code"
   ],
   "author": "Ryan Joachim",
   "license": "MIT"
