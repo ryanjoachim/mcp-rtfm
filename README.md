@@ -8,6 +8,8 @@
 
 > **Plot twist**: Instead of just telling people to RTFM, now you can actually give them an FM worth R-ing! Because the best response to "read the f*ing manual" is having a manual that's actually worth reading. 📚✨
 
+<a href="https://glama.ai/mcp/servers/44sgp6bmdc"><img width="380" height="200" src="https://glama.ai/mcp/servers/44sgp6bmdc/badge" alt="mcp-rtfm MCP server" /></a>
+
 ## 📚 Table of Contents
 
 - [Quick Start](#-quick-start)
