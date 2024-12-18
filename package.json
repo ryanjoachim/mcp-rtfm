@@ -1,0 +1,46 @@
+{
+  "name": "mcp-rtfm",
+  "version": "0.1.0",
+  "description": "MCP server for intelligent documentation analysis, enhancement, and knowledge management - making project documentation actually readable",
+  "type": "module",
+  "bin": {
+    "mcp-rtfm": "./build/index.js"
+  },
+  "files": [
+    "build"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "prepare": "npm run build",
+    "watch": "tsc --watch",
+    "inspector": "npx @modelcontextprotocol/inspector build/index.js"
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "0.6.0",
+    "minisearch": "^7.1.1",
+    "remark-parse": "^11.0.0",
+    "remark-stringify": "^11.0.0",
+    "unified": "^11.0.5"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.10",
+    "typescript": "^5.3.3"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/ryanjoachim/mcp-rtfm.git"
+  },
+  "keywords": [
+    "mcp",
+    "documentation",
+    "markdown",
+    "analysis",
+    "search",
+    "metadata",
+    "knowledge-base",
+    "handoff",
+    "project-docs"
+  ],
+  "author": "Ryan Joachim",
+  "license": "MIT"
+}
