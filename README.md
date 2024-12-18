@@ -81,6 +81,7 @@ Built-in templates for different documentation types:
 Custom templates can be created using the `customize_template` tool.
 
 ## 📝 Example Workflows
+
 ### 1. Analyzing Existing Documentation
 
 ```typescript
@@ -148,9 +149,8 @@ const searchResults = await use_mcp_tool({
 // - Full content context
 // - Related document suggestions
 ```
-```
 
-### 2. Updating Documentation with Content Links
+### 3. Updating Documentation with Content Links
 
 ```typescript
 // First read the document
@@ -177,7 +177,7 @@ await use_mcp_tool({
 });
 ```
 
-### 3. Managing Documentation Metadata
+### 4. Managing Documentation Metadata
 
 ```typescript
 // Update metadata for better organization
@@ -206,7 +206,7 @@ const related = await use_mcp_tool({
 });
 ```
 
-### 4. Searching Documentation with Context
+### 5. Searching Documentation with Context
 
 ```typescript
 // Search with highlighted results
@@ -226,7 +226,7 @@ const results = await use_mcp_tool({
 // - Context around matches
 ```
 
-### 5. Creating Custom Templates
+### 6. Creating Custom Templates
 
 ```typescript
 // Create a custom template for architecture decisions
@@ -261,14 +261,17 @@ await use_mcp_tool({
 ### VSCode (Roo Cline)
 
 Add to settings file at:
-`%APPDATA%\Code\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json`
+Add to settings file at:
+- Windows: `%APPDATA%\Code\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json`
+- MacOS: `~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
+- Linux: `~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
 
 ```json
 {
   "mcpServers": {
     "mcp-rtfm": {
       "command": "node",
-      "args": ["C:/Users/Chewy/Documents/Cline/MCP/mcp-rtfm/build/index.js"],
+      "args": ["<path-to-mcp-rtfm>/build/index.js"],
       "disabled": false,
       "alwaysAllow": []
     }
@@ -279,15 +282,16 @@ Add to settings file at:
 ### Claude Desktop
 
 Add to config file at:
-- Windows: `%APPDATA%/Claude/claude_desktop_config.json`
+- Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 - MacOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
+- Linux: `~/.config/Claude/claude_desktop_config.json`
 
 ```json
 {
   "mcpServers": {
     "mcp-rtfm": {
       "command": "node",
-      "args": ["/path/to/mcp-rtfm/build/index.js"],
+      "args": ["<path-to-mcp-rtfm>/build/index.js"],
       "disabled": false,
       "alwaysAllow": []
     }
@@ -304,10 +308,12 @@ Use `[[document-name]]` syntax to create links between documents. The server aut
 ### Metadata-Driven Organization
 
 Documents are organized using:
+
 - Categories (e.g., "architecture", "api", "workflow")
 - Tags for flexible grouping
 - Automatic relationship discovery based on shared metadata
 - Content link analysis
+
 ### Enhanced Content Analysis
 
 The server uses advanced libraries for better documentation management:
