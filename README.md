@@ -4,7 +4,8 @@
 [![MCP](https://img.shields.io/badge/MCP-0.1.0-green.svg)](https://github.com/modelcontextprotocol)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> "RTFM!" they say, but what if there's no FM to R? 🤔 Enter MCP-RTFM: an MCP server that helps you *create* the F*ing Manual everyone keeps telling people to read! Using advanced content analysis, metadata generation, and intelligent search capabilities, it transforms your non-existent or unreadable docs into an interconnected knowledge base that actually answers those "basic questions" before they're asked.
+> "RTFM!" they say, but what if there's no FM to R? 🤔 Enter MCP-RTFM: an MCP server that helps you *create* the F*ing Manual everyone keeps telling people to read!
+Using straightforward content organization, basic metadata generation, and efficient search capabilities, it transforms your non-existent or unreadable docs into a structured knowledge base that actually answers those "basic questions" before they're asked.
 
 > **Plot twist**: Instead of just telling people to RTFM, now you can actually give them an FM worth R-ing! Because the best response to "read the f*ing manual" is having a manual that's actually worth reading. 📚✨
 
@@ -30,33 +31,31 @@ npm run build
 # Add to your MCP settings and start using
 await use_mcp_tool({
   server: "mcp-rtfm",
-  tool: "analyze_project_with_metadata", // Enhanced initialization
+  tool: "analyze_project", // Basic initialization
   args: { projectPath: "/path/to/project" }
 });
 
 // This will:
 // 1. Create documentation structure
-// 2. Analyze content with unified/remark
-// 3. Generate intelligent metadata
+// 2. Process content with unified/remark
+// 3. Generate basic metadata
 // 4. Build search index with minisearch
 // 5. Add structured front matter
-// 6. Make your docs actually readable!
 ```
 
 ## ✨ Features
 
 ### Documentation Management Tools
 
-- `analyze_existing_docs` - Analyze and enhance existing documentation with content analysis and metadata
-- `analyze_project_with_metadata` - Initialize documentation structure with enhanced content analysis and metadata generation
-- `analyze_project` - Basic initialization of documentation structure
+- `analyze_existing_docs` - Process and enhance existing documentation with basic content analysis
+- `analyze_project` - Initialize documentation structure
 - `read_doc` - Read a documentation file (required before updating)
 - `update_doc` - Update documentation using diff-based changes
 - `get_doc_content` - Get current content of a documentation file
 - `get_project_info` - Get project structure and documentation status
 - `search_docs` - Search across documentation files with highlighted results
 - `update_metadata` - Update documentation metadata
-- `get_related_docs` - Find related documentation based on metadata and content links
+- `get_related_docs` - Find related documentation based on basic metadata
 - `customize_template` - Create or update documentation templates
 
 ### Default Documentation Files
@@ -85,7 +84,7 @@ Custom templates can be created using the `customize_template` tool.
 ### 1. Analyzing Existing Documentation
 
 ```typescript
-// Enhance existing documentation with advanced analysis
+// Process existing documentation
 await use_mcp_tool({
   server: "mcp-rtfm",
   tool: "analyze_existing_docs",
@@ -94,46 +93,45 @@ await use_mcp_tool({
 
 // This will:
 // - Find all markdown files in .handoff_docs
-// - Analyze content structure with unified/remark
-// - Generate intelligent metadata
+// - Process content structure with unified/remark
+// - Generate basic metadata
 // - Build search index
 // - Add front matter if not present
-// - Establish document relationships
-// - Preserve existing content
+// - Establish simple document relationships
 
 // The results include:
-// - Enhanced metadata for all docs
+// - Basic metadata for all docs
 // - Search index population
-// - Content relationship mapping
+// - Simple content relationships
 // - Git context if available
 ```
 
-### 2. Enhanced Project Documentation Setup
+### 2. Basic Project Documentation Setup
 
 ```typescript
-// Initialize documentation with advanced content analysis
+// Initialize documentation
 await use_mcp_tool({
   server: "mcp-rtfm",
-  tool: "analyze_project_with_metadata",
+  tool: "analyze_project",
   args: { projectPath: "/path/to/project" }
 });
 
 // Results include:
 // - Initialized documentation files
-// - Generated metadata from content analysis
-// - Established document relationships
-// - Populated search index
+// - Generated basic metadata
+// - Simple document relationships
+// - Search index setup
 // - Added structured front matter
 // - Git repository context
 
-// Get enhanced project information
+// Get project information
 const projectInfo = await use_mcp_tool({
   server: "mcp-rtfm",
   tool: "get_project_info",
   args: { projectPath: "/path/to/project" }
 });
 
-// Search across documentation with intelligent results
+// Search across documentation
 const searchResults = await use_mcp_tool({
   server: "mcp-rtfm",
   tool: "search_docs",
@@ -144,10 +142,9 @@ const searchResults = await use_mcp_tool({
 });
 
 // Results include:
-// - Weighted matches (title matches prioritized)
-// - Fuzzy search results
-// - Full content context
-// - Related document suggestions
+// - Direct text matches
+// - Line numbers and context
+// - Basic file information
 ```
 
 ### 3. Updating Documentation with Content Links
@@ -262,6 +259,7 @@ await use_mcp_tool({
 
 Add to settings file at:
 Add to settings file at:
+
 - Windows: `%APPDATA%\Code\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json`
 - MacOS: `~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
 - Linux: `~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
@@ -282,6 +280,7 @@ Add to settings file at:
 ### Claude Desktop
 
 Add to config file at:
+
 - Windows: `%APPDATA%\Claude\claude_desktop_config.json`
 - MacOS: `~/Library/Application Support/Claude/claude_desktop_config.json`
 - Linux: `~/.config/Claude/claude_desktop_config.json`
@@ -303,49 +302,49 @@ Add to config file at:
 
 ### Content Linking
 
-Use `[[document-name]]` syntax to create links between documents. The server automatically tracks these relationships and includes them when finding related documentation.
+Use `[[document-name]]` syntax to create links between documents. The server tracks these relationships for basic document connections.
 
-### Metadata-Driven Organization
+### Metadata Organization
 
 Documents are organized using:
 
-- Categories (e.g., "architecture", "api", "workflow")
-- Tags for flexible grouping
-- Automatic relationship discovery based on shared metadata
-- Content link analysis
+- Basic categories (e.g., "architecture", "api", "workflow")
+- Simple tagging system
+- Document relationships based on shared metadata
+- Basic content link tracking
 
-### Enhanced Content Analysis
+### Content Analysis
 
-The server uses advanced libraries for better documentation management:
+The server uses established libraries for documentation management:
 
 - **unified/remark** for Markdown processing:
-  - AST-based content analysis
-  - Accurate heading structure detection
+  - Basic content structure analysis
+  - Heading detection
   - Code block and link extraction
-  - Proper Markdown parsing and manipulation
+  - Standard Markdown parsing
 
-- **minisearch** for powerful search capabilities:
-  - Fast fuzzy searching across all documentation
-  - Field-weighted search (titles given higher priority)
-  - Full content and metadata indexing
-  - Efficient caching with TTL management
-  - Real-time search index updates
+- **minisearch** for search capabilities:
+  - Text-based searching across documentation
+  - Basic result highlighting
+  - Content indexing
+  - Simple results caching
+  - Index updates on content changes
 
-### Intelligent Metadata Generation
+### Metadata Generation
 
-- Automatic content analysis for categorization
-- Smart tag generation based on content patterns
+- Basic content categorization
+- Simple tag assignment
 - Structured front matter in documents
-- AST-based title and section detection
-- Code snippet identification and tagging
-- Context-aware result presentation
+- Basic title and section detection
+- Code block identification
+- Standard search results
 
 ### Template System
 
 - Built-in templates for common documentation types
-- Custom template support with metadata defaults
-- Template inheritance and override capabilities
-- Placeholder system for consistent formatting
+- Custom template support with basic metadata
+- Simple template overrides
+- Basic placeholder system
 
 ## 🛠️ Development
 

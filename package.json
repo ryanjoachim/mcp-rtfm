@@ -1,6 +1,6 @@
 {
   "name": "mcp-rtfm",
-  "version": "0.1.0",
+  "version": "0.1.2",
   "description": "Ever been told to RTFM only to find there's no FM to R? MCP-RTFM is the solution - it helps you CREATE the F*ing Manual that people keep telling everyone to read! Transform your non-existent or unreadable docs into an intelligent, searchable knowledge base that actually answers those 'basic questions' before they're asked.",
   "type": "module",
   "bin": {
@@ -20,7 +20,11 @@
     "minisearch": "^7.1.1",
     "remark-parse": "^11.0.0",
     "remark-stringify": "^11.0.0",
-    "unified": "^11.0.5"
+    "unified": "^11.0.5",
+    "@babel/parser": "^7.23.0",
+    "dependency-cruiser": "^13.1.0",
+    "pino": "^8.15.1",
+    "quick-lru": "^6.1.1"
   },
   "devDependencies": {
     "@types/node": "^20.17.10",
