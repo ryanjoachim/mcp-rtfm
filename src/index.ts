@@ -273,7 +273,8 @@ const categorizeContent = (
 // Helper function to update search index
 const updateSearchIndex = (docFile: string, content: string, metadata: DocMetadata) => {
   const docId = docFile.replace('.md', '');
-  searchEngine.remove({ id: docId });
+  if (searchEngine.has({ id: docId }))
+            searchEngine.remove({ id: docId });  
   searchEngine.add({
     id: docId,
     title: metadata.title,
