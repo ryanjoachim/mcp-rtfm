@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/ryanjoachim-mcp-rtfm-badge.png)](https://mseep.ai/app/ryanjoachim-mcp-rtfm)
+
 # MCP-RTFM
 
 [![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
