@@ -61,6 +61,31 @@ interface SearchResult {
 
 const CACHE_TTL = 5 * 60 * 1000; // 5 minutes
 
+// File locking for concurrent update protection
+const fileLocks: Record<string, Promise<void>> = {};
+
+const withFileLock = async (filePath: string, fn: () => Promise<void>): Promise<void> => {
+  while (fileLocks[filePath]) {
+    await fileLocks[filePath];
+  }
+  let release: () => void;
+  const lockPromise = new Promise<void>(resolve => { release = resolve; });
+  fileLocks[filePath] = lockPromise;
+  try {
+    await fn();
+  } finally {
+    delete fileLocks[filePath];
+    release!();
+  }
+};
+
+// Template override lookup - checks custom overrides before default
+const getTemplateForFile = (fileName: string): string => {
+  const override = state.templateOverrides[fileName];
+  if (override) return override.content;
+  return TEMPLATE_CONTENT;
+};
+
 interface DocMetadata {
   title: string;
   category: string;
@@ -75,7 +100,8 @@ interface DocTemplate {
   metadata: Partial<DocMetadata>;
 }
 
-const DEFAULT_DOCS = [
+// Base set of docs created by default; actual doc list is derived from the filesystem
+const BASE_DOCS = [
   "techStack.md",
   "codebaseDetails.md",
   "workflowDetails.md",
@@ -83,6 +109,16 @@ const DEFAULT_DOCS = [
   "errorHandling.md",
   "handoff_notes.md"
 ];
+
+// Returns the actual docs in the project (BASE_DOCS + any custom ones added to the filesystem)
+const getActualDocs = async (docsPath: string): Promise<string[]> => {
+  try {
+    const files = await fs.readdir(docsPath);
+    return files.filter(f => f.endsWith('.md')).sort();
+  } catch {
+    return [];
+  }
+};
 
 const TEMPLATES: Record<string, DocTemplate> = {
   standard: {
@@ -195,7 +231,7 @@ const server = new Server(
 // Global state
 // Helper functions for context and metadata management
 const updateMetadata = async (filePath: string, metadata: Partial<DocMetadata>) => {
-  const fileName = filePath.split('/').pop() as string;
+  const fileName = filePath.split(/[\\/]/).pop() as string;
   state.metadata[fileName] = {
     ...state.metadata[fileName],
     ...metadata,
@@ -308,9 +344,10 @@ const findRelatedDocs = async (docFile: string, projectPath: string): Promise<st
   // Find docs referenced in content
   const content = await fs.readFile(`${projectPath}/.handoff_docs/${docFile}`, 'utf8');
   const matches = content.match(/\[\[([^\]]+)\]\]/g) || [];
+  const actualDocs = await getActualDocs(`${projectPath}/.handoff_docs`);
   matches.forEach(match => {
     const linkedDoc = match.slice(2, -2).trim() + '.md';
-    if (DEFAULT_DOCS.includes(linkedDoc)) {
+    if (actualDocs.includes(linkedDoc)) {
       related.add(linkedDoc);
     }
   });
@@ -332,8 +369,9 @@ const searchDocContent = async (projectPath: string, query: string): Promise<Sea
   const results: SearchResult[] = [];
   const docsPath = `${projectPath}/.handoff_docs`;
   const searchRegex = new RegExp(query, 'gi');
+  const actualDocs = await getActualDocs(docsPath);
 
-  for (const doc of DEFAULT_DOCS) {
+  for (const doc of actualDocs) {
     try {
       const content = await fs.readFile(`${docsPath}/${doc}`, 'utf8');
       const lines = content.split('\n');
@@ -449,7 +487,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "update_doc",
-        description: "Update a specific documentation file using diff-based changes",
+        description: "Update a specific documentation file using diff-based changes. Content can be provided directly or via prior read_doc call.",
         inputSchema: {
           type: "object",
           properties: {
@@ -472,6 +510,10 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             continueToNext: {
               type: "boolean",
               description: "Whether to continue to the next file after this update"
+            },
+            content: {
+              type: "string",
+              description: "Direct file content for update (optional - omit to use content from read_doc)"
             }
           },
           required: ["projectPath", "docFile", "searchContent", "replaceContent"]
@@ -747,7 +789,7 @@ ${content}`;
         await fs.mkdir(docsPath, { recursive: true });
 
         // Initialize default documentation files if they don't exist
-        for (const doc of DEFAULT_DOCS) {
+        for (const doc of BASE_DOCS) {
           const filePath = `${docsPath}/${doc}`;
           try {
             await fs.access(filePath);
@@ -756,7 +798,7 @@ ${content}`;
               .split(/[_-]/)
               .map(word => word.charAt(0).toUpperCase() + word.slice(1))
               .join(" ");
-            await fs.writeFile(filePath, TEMPLATE_CONTENT.replace("{title}", title));
+            await fs.writeFile(filePath, getTemplateForFile(doc).replace("{title}", title));
           }
         }
 
@@ -776,8 +818,9 @@ ${content}`;
         // Clear existing search index
         searchEngine.removeAll();
 
-        // Now enhance each file with metadata and context
-        for (const doc of DEFAULT_DOCS) {
+        // Enhance all files present (base + any custom ones added to the directory)
+        const actualDocs = await getActualDocs(docsPath);
+        for (const doc of actualDocs) {
           const filePath = `${docsPath}/${doc}`;
           const content = await fs.readFile(filePath, "utf8");
 
@@ -811,8 +854,9 @@ ${content}`;
             relatedDocs
           });
 
-          // Add structured front matter to content
-          const enhancedContent = `---
+          // Add structured front matter to content if it doesn't already have it
+          if (!content.startsWith('---')) {
+            const enhancedContent = `---
 title: ${metadata.title}
 category: ${metadata.category}
 tags: ${metadata.tags.join(', ')}
@@ -822,8 +866,9 @@ relatedDocs: ${relatedDocs.join(', ')}
 
 ${content}`;
 
-          // Update file with enhanced content
-          await fs.writeFile(filePath, enhancedContent);
+            // Update file with enhanced content
+            await fs.writeFile(filePath, enhancedContent);
+          }
         }
 
         // Get project info for additional context
@@ -845,7 +890,7 @@ ${content}`;
               text: JSON.stringify({
                 message: "Documentation structure initialized with metadata and context",
                 docsPath,
-                files: DEFAULT_DOCS,
+                files: actualDocs,
                 metadata: state.metadata,
                 gitInfo,
                 contextCache: {
@@ -873,7 +918,7 @@ ${content}`;
         await fs.mkdir(docsPath, { recursive: true });
 
         // Initialize default documentation files if they don't exist
-        for (const doc of DEFAULT_DOCS) {
+        for (const doc of BASE_DOCS) {
           const filePath = `${docsPath}/${doc}`;
           try {
             await fs.access(filePath);
@@ -882,7 +927,7 @@ ${content}`;
               .split(/[_-]/)
               .map(word => word.charAt(0).toUpperCase() + word.slice(1))
               .join(" ");
-            await fs.writeFile(filePath, TEMPLATE_CONTENT.replace("{title}", title));
+            await fs.writeFile(filePath, getTemplateForFile(doc).replace("{title}", title));
           }
         }
 
@@ -905,7 +950,7 @@ ${content}`;
               text: JSON.stringify({
                 message: "Documentation structure initialized",
                 docsPath,
-                files: DEFAULT_DOCS
+                files: (await getActualDocs(docsPath)).length ? await getActualDocs(docsPath) : BASE_DOCS
               }, null, 2)
             }
           ]
@@ -952,47 +997,59 @@ ${content}`;
     }
 
     case "update_doc": {
-      const { projectPath, docFile, searchContent, replaceContent, continueToNext = false } =
+      const { projectPath, docFile, searchContent, replaceContent, continueToNext = false, content } =
         request.params.arguments as {
           projectPath: string;
           docFile: string;
           searchContent: string;
           replaceContent: string;
           continueToNext?: boolean;
+          content?: string;
         };
 
       try {
-        // Validate that the file was read first
-        if (state.lastReadFile !== docFile || !state.lastReadContent) {
-          throw new McpError(
-            ErrorCode.InvalidRequest,
-            `Must read ${docFile} before updating it`
-          );
-        }
-
         const filePath = `${projectPath}/.handoff_docs/${docFile}`;
 
-        // Verify the search content exists in the file
-        if (!state.lastReadContent.includes(searchContent)) {
-          throw new McpError(
-            ErrorCode.InvalidRequest,
-            `Search content not found in ${docFile}`
-          );
-        }
+        await withFileLock(filePath, async () => {
+          // Determine source content: provided directly or from state
+          let fileContent: string;
+          if (content !== undefined) {
+            fileContent = content;
+          } else if (state.lastReadFile === docFile && state.lastReadContent) {
+            fileContent = state.lastReadContent;
+          } else {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              `Must call read_doc first or provide content parameter`
+            );
+          }
 
-        // Apply the diff
-        const newContent = state.lastReadContent.replace(searchContent, replaceContent);
-        await fs.writeFile(filePath, newContent);
+          // Verify the search content exists in the file
+          if (!fileContent.includes(searchContent)) {
+            throw new McpError(
+              ErrorCode.InvalidRequest,
+              `Search content not found in ${docFile}`
+            );
+          }
 
-        // Update state
-        state.lastReadContent = newContent;
-        if (!state.completedFiles.includes(docFile)) {
-          state.completedFiles.push(docFile);
-        }
-        state.continueToNext = continueToNext;
+          // Apply the diff
+          const newContent = fileContent.replace(searchContent, replaceContent);
+          await fs.writeFile(filePath, newContent, 'utf8');
+
+          // Update state
+          state.lastReadContent = newContent;
+          if (!state.completedFiles.includes(docFile)) {
+            state.completedFiles.push(docFile);
+          }
+          state.continueToNext = continueToNext;
+
+          // Invalidate search cache since content changed
+          state.contextCache = {};
+        });
 
         if (continueToNext) {
-          const remainingDocs = DEFAULT_DOCS.filter(doc => !state.completedFiles.includes(doc));
+          const docsPath = `${projectPath}/.handoff_docs`;
+          const remainingDocs = (await getActualDocs(docsPath)).filter(doc => !state.completedFiles.includes(doc));
           if (remainingDocs.length > 0) {
             state.currentFile = remainingDocs[0];
           } else {
@@ -1100,6 +1157,9 @@ ${content}`;
         const filePath = `${projectPath}/.handoff_docs/${docFile}`;
         await fs.access(filePath); // Verify file exists
         await updateMetadata(filePath, metadata);
+
+        // Invalidate search cache since metadata changed
+        state.contextCache = {};
 
         return {
           content: [
@@ -1235,6 +1295,8 @@ ${content}`;
         };
 
         const projectStructure = await getDirectoryStructure(projectPath);
+        const docsPath = `${projectPath}/.handoff_docs`;
+        const actualDocs = await getActualDocs(docsPath);
 
         return {
           content: [
@@ -1249,7 +1311,7 @@ ${content}`;
                   current: state.currentFile,
                   inProgress: state.inProgress,
                   lastRead: state.lastReadFile,
-                  remaining: DEFAULT_DOCS.filter(doc => !state.completedFiles.includes(doc))
+                  remaining: actualDocs.filter(doc => !state.completedFiles.includes(doc))
                 }
               }, null, 2)
             }

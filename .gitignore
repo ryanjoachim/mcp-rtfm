@@ -1,5 +1,6 @@
 # Dependencies
 node_modules/
+package-lock.json
 
 # Build output
 build/
@@ -8,6 +9,7 @@ build/
 .vscode/
 .idea/
 *.sublime-*
+.handoff_docs
 
 # Logs
 *.log

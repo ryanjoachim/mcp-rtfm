@@ -16,14 +16,14 @@
     "inspector": "npx @modelcontextprotocol/inspector build/index.js"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "0.6.0",
+    "@modelcontextprotocol/sdk": "^1.29.0",
     "minisearch": "^7.1.1",
     "remark-parse": "^11.0.0",
     "remark-stringify": "^11.0.0",
     "unified": "^11.0.5"
   },
   "devDependencies": {
-    "@types/node": "^20.17.10",
+    "@types/node": "^20.19.39",
     "typescript": "^5.3.3"
   },
   "repository": {
