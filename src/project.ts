@@ -1,12 +1,15 @@
 // ============================================================================
-// Project Signature Detection and Template Generation
+// Project Analysis: Signature Detection, Symbol Extraction, and Template Generation
 // ============================================================================
 
 import * as fs from "fs/promises";
-import { getTemplateForFile } from "./templates.js";
-import { sourceExtensions } from "./utils.js";
-import { extractSymbols } from "./symbols.js";
-import type { ProjectSignature, CodeSymbol } from "./types.js";
+import { TEMPLATE_CONTENT, getActualDocs, sourceExtensions } from "./utils.js";
+import type { ProjectSignature, CodeSymbol, ContentGap } from "./types.js";
+
+// Cache signature detection results per project path
+const signatureCache = new Map<string, ProjectSignature>();
+
+export const clearSignatureCache = () => { signatureCache.clear(); };
 
 const FRAMEWORK_INSIGHTS: Record<string, string[]> = {
   "Express": [
@@ -25,20 +28,14 @@ const FRAMEWORK_INSIGHTS: Record<string, string[]> = {
   ]
 };
 
-const getHandlerDescription = (name: string) => {
-  return name
-    .replace(/^handle/i, "Handles ")
-    .replace(/([a-z])([A-Z])/g, "$1 $2")
-    .replace(/^./, (str) => str.toUpperCase()) + " request";
-};
-
-// Detect project signature from codebase
+// Detect project signature from package.json only
 export const detectProjectSignature = async (projectPath: string): Promise<ProjectSignature> => {
+  const cached = signatureCache.get(projectPath);
+  if (cached) return cached;
+
   const signature: ProjectSignature = {
     frameworks: [],
-    patterns: [],
-    apiEndpoints: [],
-    components: []
+    patterns: []
   };
 
   // Check package.json for framework dependencies
@@ -67,16 +64,17 @@ export const detectProjectSignature = async (projectPath: string): Promise<Proje
     // No package.json
   }
 
-  // Scan for API endpoints and components
+  signatureCache.set(projectPath, signature);
+  return signature;
+};
 
-  // Detect MCP handlers
-  const mcpHandlerRegex = /(?:server|router)\.setRequestHandler\s*\(\s*['"`]([^'"`]+)['"`]/g;
-  // Detect CLI argument parsing patterns
-  const cliRegex = /(?:yargs|commander|arg|meow)\s*\.(?:command|option|positional)\s*\(['"`]/g;
-  // Detect event emitters
-  const eventEmitterRegex = /(?:EventEmitter|emitter|emit|on\s*\()\s*['"`]([^'"`]+)['"`]/g;
-  // Detect database operations
-  const dbOperationRegex = /(?:query|find|create|update|delete|insert)\s*\(\s*['"`]([^'"`]+)['"`]/gi;
+// ============================================================================
+// Symbol Extraction and Content Gap Analysis
+// ============================================================================
+
+// Extract symbols from source code files
+export const extractSymbols = async (projectPath: string, targetFiles?: string[]): Promise<CodeSymbol[]> => {
+  const symbols: CodeSymbol[] = [];
 
   const scanDir = async (dir: string) => {
     let entries: any[];
@@ -87,74 +85,60 @@ export const detectProjectSignature = async (projectPath: string): Promise<Proje
     }
 
     for (const entry of entries) {
-  if (entry.name.startsWith(".") || ["node_modules", ".handoff_docs", "build", "dist"].includes(entry.name)) continue;
-
-      // Skip handlers directory - it defines MCP tools, not API endpoints
-      // The setRequestHandler regex falsely matches tool names in tools: [{ name: "..."}] arrays
-      if (entry.isDirectory() && entry.name === "handlers") continue;
+      if (entry.name.startsWith(".") || ["node_modules", ".handoff_docs", "build", "dist"].includes(entry.name)) continue;
 
       const fullPath = `${dir}/${entry.name}`;
+      const relativePath = fullPath.replace(projectPath + "/", "");
 
       if (entry.isDirectory()) {
         await scanDir(fullPath);
       } else if (entry.isFile() && sourceExtensions.some(ext => entry.name.endsWith(ext))) {
+        // Skip if targetFiles is specified and this file isn't in the list
+        if (targetFiles && !targetFiles.some(tf => relativePath.endsWith(tf))) {
+          continue;
+        }
+
         try {
           const content = await fs.readFile(fullPath, "utf8");
+          const lines = content.split("\n");
 
-          // Detect MCP handlers
-          let mcpMatch;
-          while ((mcpMatch = mcpHandlerRegex.exec(content)) !== null) {
-            signature.apiEndpoints.push({
-              method: "MCP",
-              path: mcpMatch[1]
-            });
-          }
+          // Pattern matching for various symbol types
+          const patterns = [
+            // Export functions: export function name(... or export async function name(...
+            { type: "function" as const, regex: /export\s+(?:async\s+)?function\s+(\w+)/g },
+            // Export constants: export const name = ...
+            { type: "constant" as const, regex: /export\s+const\s+(\w+)\s*[=:]/g },
+            // Classes: export class Name or class Name
+            { type: "class" as const, regex: /(?:export\s+)?class\s+(\w+)/g },
+            // Interfaces: export interface Name or interface Name
+            { type: "interface" as const, regex: /(?:export\s+)?interface\s+(\w+)/g },
+            // Types: export type Name or type Name
+            { type: "type" as const, regex: /(?:export\s+)?type\s+(\w+)/g },
+          ];
 
-          // Detect CLI patterns
-          let cliMatch;
-          while ((cliMatch = cliRegex.exec(content)) !== null) {
-            signature.patterns.push(`CLI: ${cliMatch[1]}`);
-          }
+          for (const { type, regex } of patterns) {
+            let match;
+            while ((match = regex.exec(content)) !== null) {
+              const name = match[1];
+              if (name && !name.startsWith("_")) {
+                // Calculate line number from match position
+                const lineNumber = content.substring(0, match.index).split('\n').length;
+                // Calculate signature (capture until opening brace or end of line)
+                const contentAfterMatch = content.substring(match.index);
+                const braceIndex = contentAfterMatch.indexOf('{');
+                const signature = braceIndex !== -1
+                  ? contentAfterMatch.substring(0, braceIndex).trim()
+                  : lines[lineNumber - 1]?.trim();
 
-          // Detect event patterns
-          let eventMatch;
-          while ((eventMatch = eventEmitterRegex.exec(content)) !== null) {
-            signature.patterns.push(`Event: ${eventMatch[1]}`);
-          }
-
-          // Detect database operations
-          let dbMatch;
-          while ((dbMatch = dbOperationRegex.exec(content)) !== null) {
-            if (!signature.patterns.includes(`DB: ${dbMatch[1]}`)) {
-              signature.patterns.push(`DB: ${dbMatch[1]}`);
+                symbols.push({
+                  name,
+                  type,
+                  filePath: relativePath,
+                  lineNumber,
+                  signature
+                });
+              }
             }
-          }
-
-          // Detect Express/Fastify routes (existing pattern)
-          const routeRegex = /(?:app|router|server)\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/g;
-          let match;
-          while ((match = routeRegex.exec(content)) !== null) {
-            // Skip placeholder paths - they come from code comments/examples, not real endpoints
-            if (match[2] === "/path") continue;
-            signature.apiEndpoints.push({
-              method: match[1].toUpperCase(),
-              path: match[2]
-            });
-          }
-
-          // Detect React/Vue components
-          if (content.includes("export default function") || content.includes("export function")) {
-            const componentMatch = content.match(/export\s+(?:default\s+)?function\s+(\w+)/);
-            if (componentMatch && (entry.name.endsWith(".tsx") || entry.name.endsWith(".jsx"))) {
-              signature.components.push(componentMatch[1]);
-            }
-          }
-
-          // Detect exported symbols (functions, classes, interfaces)
-          const exportRegex = /^export\s+(?:type|interface|class|const|function)\s+(\w+)/gm;
-          let exportMatch;
-          while ((exportMatch = exportRegex.exec(content)) !== null) {
-            signature.patterns.push(exportMatch[1]);
           }
         } catch {
           // Skip files we can't read
@@ -164,10 +148,70 @@ export const detectProjectSignature = async (projectPath: string): Promise<Proje
   };
 
   await scanDir(projectPath);
-  return signature;
+  return symbols;
 };
 
-// Generate pre-filled content based on project signature AND extracted symbols
+// Check if a symbol is mentioned in documentation
+const isSymbolDocumented = async (symbol: CodeSymbol, projectPath: string): Promise<boolean> => {
+  const docsPath = `${projectPath}/.handoff_docs`;
+  const actualDocs = await getActualDocs(docsPath);
+
+  // Escape special regex characters in the symbol name
+  const escaped = symbol.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  const wordBoundaryRegex = new RegExp(`\\b${escaped}\\b`);
+
+  for (const doc of actualDocs) {
+    try {
+      const content = await fs.readFile(`${docsPath}/${doc}`, "utf8");
+      // Check if symbol name appears as a word boundary match or in backticks
+      if (wordBoundaryRegex.test(content) || content.includes('`' + symbol.name + '`')) {
+        return true;
+      }
+    } catch {
+      // Skip files we can't read
+    }
+  }
+  return false;
+};
+
+// Determine which doc file should contain documentation for a symbol
+const suggestDocForSymbol = (symbol: CodeSymbol): string => {
+  if (["class", "interface", "type"].includes(symbol.type)) {
+    return "codebaseDetails.md";
+  }
+  if (symbol.filePath.includes("util") || symbol.filePath.includes("helper")) {
+    return "codebaseDetails.md";
+  }
+  if (symbol.filePath.includes("test") || symbol.filePath.includes("spec")) {
+    return "workflowDetails.md";
+  }
+  return "codebaseDetails.md";
+};
+
+// Analyze content gaps
+export const analyzeContentGaps = async (projectPath: string, targetFiles?: string[]): Promise<ContentGap[]> => {
+  const symbols = await extractSymbols(projectPath, targetFiles);
+  const gaps: ContentGap[] = [];
+
+  for (const symbol of symbols) {
+    const isDocumented = await isSymbolDocumented(symbol, projectPath);
+    if (!isDocumented) {
+      gaps.push({
+        symbol,
+        suggestedDoc: suggestDocForSymbol(symbol),
+        reason: `${symbol.type} '${symbol.name}' in ${symbol.filePath} is not mentioned in any documentation`
+      });
+    }
+  }
+
+  return gaps;
+};
+
+// ============================================================================
+// Template Generation
+// ============================================================================
+
+// Generate pre-filled content based on project signature and extracted symbols
 export const generatePreFilledContent = async (docFile: string, projectPath: string): Promise<string> => {
   const signature = await detectProjectSignature(projectPath);
   const symbols = await extractSymbols(projectPath);
@@ -178,7 +222,7 @@ export const generatePreFilledContent = async (docFile: string, projectPath: str
     .map(word => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
 
-  let content = getTemplateForFile(docFile).replace("{title}", title);
+  let content = TEMPLATE_CONTENT.replace("{title}", title);
 
   // Organize symbols by type
   const functions = symbols.filter(s => s.type === "function");
@@ -217,62 +261,6 @@ ${insights.map(i => `- ${i}`).join("\n")}
     }
   }
 
-  if (docFile === "integrationGuides.md") {
-    // Filter MCP tools - they are not traditional API endpoints
-    const httpEndpoints = signature.apiEndpoints.filter(e => e.method !== "MCP");
-
-    if (httpEndpoints.length > 0) {
-      const endpointsSection = `
-
-## API Endpoints
-| Method | Path | Description |
-|--------|------|-------------|
-${httpEndpoints.slice(0, 10).map(e => `| ${e.method} | ${e.path} | Auto-detected endpoint |`).join("\n")}
-
-*Detected from source code. Please add descriptions.*
-`;
-      content = content.replace("## Purpose and Overview", `## Purpose and Overview${endpointsSection}`);
-    }
-
-    const mcpEndpoints = signature.apiEndpoints.filter(e => e.method === "MCP");
-    if (mcpEndpoints.length > 0) {
-      const toolsSection = `
-
-## MCP Tools (${mcpEndpoints.length} detected)
-*Note: MCP tools are not traditional HTTP endpoints. They are documented via tool definitions in \`src/handlers/index.ts\`.*
-`;
-      if (content.includes("## API Endpoints")) {
-        content = content.replace("## API Endpoints", `## API Endpoints${toolsSection}`);
-      } else {
-        content = content.replace("## Purpose and Overview", `## Purpose and Overview${toolsSection}`);
-      }
-    }
-
-    // Document MCP tool handlers (functions that handle MCP requests)
-    const mcpHandlers = functions.filter(f =>
-      f.filePath.includes("handlers/") ||
-      f.name.toLowerCase().includes("handler") ||
-      f.name.toLowerCase().includes("request")
-    );
-
-    if (mcpHandlers.length > 0) {
-      const handlerSection = `
-
-## MCP Tool Handlers
-| Handler | File | Description |
-|---------|------|-------------|
-${mcpHandlers.slice(0, 20).map(f => `| \`${f.name}\` | ${f.filePath} | ${getHandlerDescription(f.name)} |`).join("\n")}
-
-*Auto-detected from source code. Please add descriptions for each handler.*
-`;
-      if (content.includes("## MCP Tools")) {
-        content = content.replace("## MCP Tools", `## MCP Tools${handlerSection}`);
-      } else {
-        content = content.replace("## Purpose and Overview", `## Purpose and Overview${handlerSection}`);
-      }
-    }
-  }
-
   if (docFile === "codebaseDetails.md") {
     const sections: string[] = [];
 
@@ -304,11 +292,6 @@ ${types.map(t => `- **${t.name}**(\`${t.filePath}:${t.lineNumber}\`) - ${t.signa
 *Auto-detected from source code.*`);
     }
 
-    // UI Components (if any React/Vue components detected)
-    if (signature.components.length > 0) {
-      sections.push(`## UI Components\n${signature.components.slice(0, 10).map(c => `- **${c}**: Component (auto-detected)`).join("\n")}\n*Please add descriptions for each component.*`);
-    }
-
     if (sections.length > 0) {
       content = content.replace("## Purpose and Overview", `${sections.join("\n\n")}\n\n## Purpose and Overview`);
     }
@@ -324,11 +307,6 @@ ${types.map(t => `- **${t.name}**(\`${t.filePath}:${t.lineNumber}\`) - ${t.signa
 
     if (signature.database) {
       sections.push(`## Database\n- **${signature.database}** - Auto-detected from project dependencies`);
-    }
-
-    const cliPatterns = signature.patterns.filter(p => p.startsWith("CLI:"));
-    if (cliPatterns.length > 0) {
-      sections.push(`## CLI Commands\n${cliPatterns.map(p => `- \`${p.replace("CLI: ", "")}\``).join("\n")}\n*Auto-detected from source code.*`);
     }
 
     // Add symbol summary for handoff
@@ -362,11 +340,6 @@ throw new McpError(ErrorCode.MethodNotFound, \`Unknown tool: \${request.params.n
 \`\`\``);
     }
 
-    const dbPatterns = signature.patterns.filter(p => p.startsWith("DB:"));
-    if (dbPatterns.length > 0) {
-      sections.push(`## Database Operations\nDetected operations: ${dbPatterns.map(p => `\`${p.replace("DB: ", "")}\``).join(", ")}\n*Ensure all database operations are wrapped in try-catch with meaningful error messages.*`);
-    }
-
     if (signature.frameworks.includes("Express")) {
       sections.push(`## Express Error Handling
 - Use middleware with \`(err, req, res, next)\` signature
@@ -395,15 +368,6 @@ ${errorHandlers.map(f => `- **${f.name}**(\`${f.filePath}:${f.lineNumber}\`)`).j
   if (docFile === "workflowDetails.md") {
     const sections: string[] = [];
 
-    const cliPatterns = signature.patterns.filter(p => p.startsWith("CLI:"));
-    if (cliPatterns.length > 0) {
-      sections.push(`## CLI Workflows
-| Command | Purpose |
-|---------|---------|
-${cliPatterns.map(p => `| \`${p.replace("CLI: ", "")}\` | Auto-detected |`).join("\n")}
-*Detected from source code.*`);
-    }
-
     if (signature.frameworks.includes("MCP SDK")) {
       sections.push(`## MCP Tool Workflow
 1. Client sends \`CallToolRequest\` with tool name and arguments
@@ -411,21 +375,6 @@ ${cliPatterns.map(p => `| \`${p.replace("CLI: ", "")}\` | Auto-detected |`).join
 3. Handler function is invoked with \`request\` object
 4. Handler returns \`{ content: [{ type: "text", text: ... }] }\`
 5. Errors should be caught and returned as \`McpError\``);
-    }
-
-    // Document handler functions (MCP tools)
-    const mcpHandlers = functions.filter(f =>
-      f.filePath.includes("handlers/") ||
-      f.name.toLowerCase().includes("handler")
-    );
-
-    if (mcpHandlers.length > 0) {
-      sections.push(`## MCP Tool Handlers
-| Handler | File | Description |
-|---------|------|-------------|
-${mcpHandlers.slice(0, 20).map(f => `| \`${f.name}\` | ${f.filePath} | ${getHandlerDescription(f.name)} |`).join("\n")}
-
-*Auto-detected from source code.*`);
     }
 
     if (sections.length > 0) {
@@ -437,21 +386,16 @@ ${mcpHandlers.slice(0, 20).map(f => `| \`${f.name}\` | ${f.filePath} | ${getHand
 };
 
 // Refresh existing doc content based on current project signature
-// Only modifies content if signature has changed or sections are outdated
 export const refreshDocContent = (docFile: string, existingContent: string, signature: ProjectSignature): string => {
-  let content = existingContent;
-
-  // Only refresh content if we detected something meaningful
-  if (signature.frameworks.length === 0 &&
-      signature.apiEndpoints.length === 0 &&
-      signature.components.length === 0) {
-    return content;
+  // Only refresh if we detected frameworks from package.json
+  if (signature.frameworks.length === 0) {
+    return existingContent;
   }
 
-  if (docFile === "techStack.md") {
-    // Refresh frameworks section
-    if (signature.frameworks.length > 0) {
-      const frameworksTable = `
+  let content = existingContent;
+
+  if (docFile === "techStack.md" && signature.frameworks.length > 0) {
+    const frameworksTable = `
 ## Detected Frameworks
 | Framework | Purpose |
 |-----------|---------|
@@ -459,75 +403,11 @@ ${signature.frameworks.map(f => `| ${f} | Primary framework |`).join("\n")}
 ${signature.database ? `| ${signature.database} | Database/ORM |` : ""}
 `;
 
-      // Replace existing Detected Frameworks section or insert before Purpose and Overview
-      if (content.includes("## Detected Frameworks")) {
-        const regex = /## Detected Frameworks[\s\S]*?(?=## Purpose and Overview|$)/;
-        content = content.replace(regex, frameworksTable + "\n");
-      } else if (content.includes("## Purpose and Overview")) {
-        content = content.replace("## Purpose and Overview", `${frameworksTable}\n\n## Purpose and Overview`);
-      }
-    }
-  }
-
-  if (docFile === "integrationGuides.md") {
-    // Filter MCP tools - they are not traditional API endpoints
-    const httpEndpoints = signature.apiEndpoints.filter(e => e.method !== "MCP");
-    const mcpEndpoints = signature.apiEndpoints.filter(e => e.method === "MCP");
-
-    // Refresh API endpoints section
-    if (httpEndpoints.length > 0) {
-      const endpointsSection = `
-
-## API Endpoints
-| Method | Path | Description |
-|--------|------|-------------|
-${httpEndpoints.slice(0, 10).map(e => `| ${e.method} | ${e.path} | Auto-detected endpoint |`).join("\n")}
-
-*Detected from source code. Please add descriptions.*
-`;
-
-      if (content.includes("## API Endpoints")) {
-        const regex = /## API Endpoints[\s\S]*?(?=## Purpose and Overview|# |## MCP Tools|$)/;
-        content = content.replace(regex, endpointsSection + "\n");
-      } else if (content.includes("## Purpose and Overview")) {
-        content = content.replace("## Purpose and Overview", `## Purpose and Overview${endpointsSection}`);
-      }
-    }
-
-    // Refresh MCP tools section
-    if (mcpEndpoints.length > 0) {
-      const toolsSection = `
-
-## MCP Tools (${mcpEndpoints.length} detected)
-*Note: MCP tools are not traditional HTTP endpoints.*
-`;
-
-      if (content.includes("## MCP Tools")) {
-        const regex = /## MCP Tools[\s\S]*?(?=## Purpose and Overview|# |$)/;
-        content = content.replace(regex, toolsSection + "\n");
-      } else if (content.includes("## Purpose and Overview")) {
-        content = content.replace("## Purpose and Overview", `## Purpose and Overview${toolsSection}`);
-      }
-    }
-  }
-
-  if (docFile === "codebaseDetails.md") {
-    // Refresh components section
-    if (signature.components.length > 0) {
-      const componentsSection = `
-
-## UI Components
-${signature.components.slice(0, 10).map(c => `- **${c}**: Component (auto-detected)`).join("\n")}
-
-*Please add descriptions for each component.*
-`;
-
-      if (content.includes("## UI Components")) {
-        const regex = /## UI Components[\s\S]*?(?=## Purpose and Overview|# )/;
-        content = content.replace(regex, componentsSection + "\n");
-      } else if (content.includes("## Purpose and Overview")) {
-        content = content.replace("## Purpose and Overview", `## Purpose and Overview${componentsSection}`);
-      }
+    if (content.includes("## Detected Frameworks")) {
+      const regex = /## Detected Frameworks[\s\S]*?(?=## Purpose and Overview|$)/;
+      content = content.replace(regex, frameworksTable + "\n");
+    } else if (content.includes("## Purpose and Overview")) {
+      content = content.replace("## Purpose and Overview", `${frameworksTable}\n\n## Purpose and Overview`);
     }
   }
 

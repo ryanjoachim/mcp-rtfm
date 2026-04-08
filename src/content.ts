@@ -6,9 +6,8 @@ import * as fs from "fs/promises";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
-import { state, searchEngine } from "./state.js";
-import { getActualDocs } from "./templates.js";
-import { slugToTitle, freshTimestamp } from "./utils.js";
+import { state, searchEngine } from "./persistence.js";
+import { getActualDocs, slugToTitle, freshTimestamp } from "./utils.js";
 import { CACHE_TTL } from "./types.js";
 import type { DocMetadata, SearchResult } from "./types.js";
 
@@ -184,35 +183,75 @@ export const searchDocContent = async (projectPath: string, query: string): Prom
 
   const results: SearchResult[] = [];
   const docsPath = `${projectPath}/.handoff_docs`;
-  const searchRegex = new RegExp(query, "gi");
-  const actualDocs = await getActualDocs(docsPath);
 
-  for (const doc of actualDocs) {
-    try {
-      const content = await fs.readFile(`${docsPath}/${doc}`, "utf8");
-      const lines = content.split("\n");
-      const matches = lines
-        .map((line, index) => {
-          const match = searchRegex.exec(line);
-          if (match) {
-            return {
-              line,
-              lineNumber: index + 1,
-              highlight: {
-                start: match.index,
-                end: match.index + match[0].length
-              }
-            };
-          }
-          return null;
-        })
-        .filter((match): match is NonNullable<typeof match> => match !== null);
+  // If search index is empty, fall back to file scanning
+  if (searchEngine.documentCount === 0) {
+    const actualDocs = await getActualDocs(docsPath);
+    const searchRegex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "gi");
 
-      if (matches.length > 0) {
-        results.push({ file: doc, matches });
+    for (const doc of actualDocs) {
+      try {
+        const content = await fs.readFile(`${docsPath}/${doc}`, "utf8");
+        const lines = content.split("\n");
+        const matches = lines
+          .map((line, index) => {
+            const match = searchRegex.exec(line);
+            if (match) {
+              return {
+                line,
+                lineNumber: index + 1,
+                highlight: {
+                  start: match.index,
+                  end: match.index + match[0].length
+                }
+              };
+            }
+            return null;
+          })
+          .filter((match): match is NonNullable<typeof match> => match !== null);
+
+        if (matches.length > 0) {
+          results.push({ file: doc, matches });
+        }
+      } catch {
+        // Skip files we can't read
       }
-    } catch (error) {
-      console.error(`Error searching ${doc}:`, error);
+    }
+  } else {
+    // Use MiniSearch for fuzzy/weighted search with relevance scoring
+    const searchResults = searchEngine.search(query, { boost: { title: 2 }, fuzzy: 0.2 });
+    const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const termRegex = new RegExp(escapedQuery, "gi");
+
+    for (const result of searchResults) {
+      const docFile = result.id + ".md";
+      try {
+        const content = await fs.readFile(`${docsPath}/${docFile}`, "utf8");
+        const lines = content.split("\n");
+        const matches = lines
+          .map((line, index) => {
+            termRegex.lastIndex = 0;
+            const match = termRegex.exec(line);
+            if (match) {
+              return {
+                line,
+                lineNumber: index + 1,
+                highlight: {
+                  start: match.index,
+                  end: match.index + match[0].length
+                }
+              };
+            }
+            return null;
+          })
+          .filter((match): match is NonNullable<typeof match> => match !== null);
+
+        if (matches.length > 0) {
+          results.push({ file: docFile, matches });
+        }
+      } catch {
+        // Skip files we can't read
+      }
     }
   }
 

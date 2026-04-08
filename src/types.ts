@@ -3,19 +3,12 @@
 // ============================================================================
 
 export interface DocState {
-  currentFile: string | null;
-  completedFiles: string[];
-  inProgress: boolean;
-  lastReadFile: string | null;
-  lastReadContent: string | null;
-  continueToNext: boolean;
   metadata: Record<string, DocMetadata>;
   contextCache: {
     lastQuery?: string;
     results?: SearchResult[];
     timestamp?: number;
   };
-  templateOverrides: Record<string, DocTemplate>;
   lastPersistedAt?: string;
   validationResults: Record<string, any>;
   symbolMap: Record<string, string[]>;
@@ -27,12 +20,6 @@ export interface DocMetadata {
   tags: string[];
   lastUpdated: string;
   relatedDocs: string[];
-}
-
-export interface DocTemplate {
-  name: string;
-  content: string;
-  metadata: Partial<DocMetadata>;
 }
 
 export interface SearchResult {
@@ -82,7 +69,7 @@ export interface RefreshResult {
 
 export interface CodeSymbol {
   name: string;
-  type: 'function' | 'class' | 'interface' | 'type' | 'variable' | 'api_route';
+  type: 'function' | 'constant' | 'class' | 'interface' | 'type';
   filePath: string;
   lineNumber?: number;
   signature?: string;
@@ -118,8 +105,6 @@ export interface ValidationResult {
 export interface ProjectSignature {
   frameworks: string[];
   patterns: string[];
-  apiEndpoints: Array<{ method: string; path: string; handler?: string }>;
-  components: string[];
   database?: string;
 }
 

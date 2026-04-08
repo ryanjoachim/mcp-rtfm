@@ -6,9 +6,11 @@ import * as fs from "fs/promises";
 import { CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
-import { state } from "../state.js";
-import { saveStateToDisk, withFileLock } from "../persistence.js";
-import { getActualDocs } from "../templates.js";
+import { state, saveStateToDisk } from "../persistence.js";
+import {
+  getActualDocs, handleToolError, slugToTitle, freshTimestamp,
+  getDocsPath, invalidateContextCache, enhanceDoc
+} from "../utils.js";
 import { analyzeAndIndexDoc } from "../content.js";
 import { detectProjectSignature, refreshDocContent } from "../project.js";
 import {
@@ -16,10 +18,6 @@ import {
   generateRefreshSuggestions, calculateSummary, applySuggestion
 } from "../changes.js";
 import { validateProjectPath } from "../validation.js";
-import {
-  handleToolError, slugToTitle, freshTimestamp,
-  getDocsPath, invalidateContextCache, enhanceDoc
-} from "../utils.js";
 import type { DocMetadata } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -48,7 +46,7 @@ export const refreshDocumentation = async (request: CallToolRequest) => {
 
   try {
     return mode === "analyze"
-      ? handleAnalyzeMode(request)
+      ? handleRefreshAnalyzeMode(request)
       : handleSyncMode(request);
   } catch (error: unknown) {
     if (error instanceof McpError) throw error;
@@ -60,7 +58,7 @@ export const refreshDocumentation = async (request: CallToolRequest) => {
 // Analyze mode — re-analyzes content, regenerates metadata, refreshes body
 // ---------------------------------------------------------------------------
 
-async function handleAnalyzeMode(request: CallToolRequest) {
+async function handleRefreshAnalyzeMode(request: CallToolRequest) {
   const { projectPath, options = {} } = request.params.arguments as {
     projectPath: string;
     options?: {
@@ -121,8 +119,7 @@ async function handleAnalyzeMode(request: CallToolRequest) {
         files: results,
         signature: {
           frameworks: signature.frameworks,
-          apiEndpoints: signature.apiEndpoints.length,
-          components: signature.components.length
+          patterns: signature.patterns
         },
         persistedAt: state.lastPersistedAt
       }, null, 2)
@@ -177,13 +174,11 @@ async function handleSyncMode(request: CallToolRequest) {
 
       const docPath = `${docsPath}/${suggestion.docFile}`;
       try {
-        await withFileLock(docPath, async () => {
-          const applied = await applySuggestion(docPath, suggestion);
-          if (applied) {
-            const content = await fs.readFile(docPath, "utf8");
-            await analyzeAndIndexDoc(suggestion.docFile, docPath, content, projectPath);
-          }
-        });
+        const applied = await applySuggestion(docPath, suggestion);
+        if (applied) {
+          const content = await fs.readFile(docPath, "utf8");
+          await analyzeAndIndexDoc(suggestion.docFile, docPath, content, projectPath);
+        }
       } catch {
         // Skip files we can't update
       }

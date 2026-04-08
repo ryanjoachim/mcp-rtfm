@@ -1,10 +1,10 @@
 # MCP-RTFM
 
-[![TypeScript](https://img.shields.io/badge/TypeScript-5.0-blue.svg)](https://www.typescriptlang.org/)
-[![MCP](https://img.shields.io/badge/MCP-0.1.0-green.svg)](https://github.com/modelcontextprotocol)
+[![TypeScript](https://img.shields.io/badge/TypeScript-5.3-blue.svg)](https://www.typescriptlang.org/)
+[![MCP Server](https://img.shields.io/badge/MCP_Server-0.1.0-green.svg)](https://github.com/modelcontextprotocol)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-> "RTFM!" they say, but what if there's no FM to R? 🤔 Enter MCP-RTFM: an MCP server that helps you *create* the F*ing Manual everyone keeps telling people to read! Using advanced content analysis, metadata generation, and intelligent search capabilities, it transforms your non-existent or unreadable docs into an interconnected knowledge base that actually answers those "basic questions" before they're asked.
+> "RTFM!" they say, but what if there's no FM to R? 🤔 Enter MCP-RTFM: an MCP server that helps you *create* the F*ing Manual everyone keeps telling people to read! Using content analysis, metadata generation, and full-text search, it transforms your non-existent or unreadable docs into an interconnected knowledge base that actually answers those "basic questions" before they're asked.
 
 > **Plot twist**: Instead of just telling people to RTFM, now you can actually give them an FM worth R-ing! Because the best response to "read the f*ing manual" is having a manual that's actually worth reading. 📚✨
 
@@ -28,6 +28,7 @@ npm install
 npm run build
 
 # Add to your MCP settings and start using
+# (The use_mcp_tool syntax below is conceptual — actual usage depends on your MCP client)
 await use_mcp_tool({
   server: "mcp-rtfm",
   tool: "analyze_project",
@@ -50,16 +51,15 @@ await use_mcp_tool({
 
 ### Documentation Management Tools
 
-- `analyze_content_gaps` - Find undocumented functions, classes, API endpoints, and other symbols
-- `analyze_project` - Analyze project and manage documentation. Use `mode: "init"` (default) to create skeleton docs, `mode: "analyze"` to enhance existing docs with metadata, or `mode: "reset"` to clear state and re-analyze. Use `initDocs: true` with `mode: "analyze"` to also create missing skeleton docs.
-- `customize_template` - Create or update documentation templates
-- `get_project_info` - Get project structure and documentation status
+- `analyze_content_gaps` - Find undocumented functions, classes, and other symbols. Optionally pass `targetFiles` (string[]) to analyze specific source files.
+- `analyze_project` - Analyze project and manage documentation. Use `mode: "init"` to create skeleton docs, `mode: "analyze"` (default) to enhance existing docs with metadata and generate content, or `mode: "reset"` to clear state and re-analyze. Use `initDocs: true` with `mode: "analyze"` to also create missing skeleton docs.
+- `get_project_info` - Get project structure and documentation status (git info, package.json, doc file list)
 - `get_related_docs` - Find related documentation based on metadata and content links
-- `read_doc` - Read a documentation file. Use `trackState: false` for a stateless read.
-- `refresh_documentation` - Scan codebase for changes and refresh docs. Use `mode: "sync"` (default) for git-based change detection, or `mode: "analyze"` to re-analyze content and regenerate metadata.
-- `search_docs` - Search across documentation files with highlighted results
-- `update_doc` - Update documentation using diff-based changes
-- `validate_documentation` - Validate documentation for broken links and outdated code snippets
+- `read_doc` - Read a documentation file
+- `refresh_documentation` - Scan codebase for changes and refresh docs. Use `mode: "sync"` (default) for git-based change detection, or `mode: "analyze"` to re-analyze content and regenerate metadata. Options: `dryRun` (boolean, default true), `includeStats` (boolean, default true), `targetDocs` (string[]) to refresh specific docs, `docFile` (string) for a single doc in analyze mode, `metadata` (object with `title`/`category`/`tags`) to override metadata in analyze mode.
+- `search_docs` - Search across documentation files with fuzzy matching via MiniSearch
+- `update_doc` - Update a specific documentation file. Provide either `content` for a full file replacement, or `searchContent` and `replaceContent` for a targeted diff.
+- `validate_documentation` - Validate documentation for broken wiki-links
 
 ### Default Documentation Files
 
@@ -74,13 +74,7 @@ The server automatically creates and manages these core documentation files:
 
 ### Documentation Templates
 
-Built-in templates for different documentation types:
-
-- Standard Documentation Template
-- API Documentation Template
-- Workflow Documentation Template
-
-Custom templates can be created using the `customize_template` tool.
+Built-in template with structured sections for Purpose and Overview, Step-by-Step Explanations, Annotated Examples, Contextual Notes, and Actionable Advice.
 
 ## 📝 Example Workflows
 
@@ -121,7 +115,7 @@ await use_mcp_tool({
 ### 2. Reading and Updating Documentation
 
 ```typescript
-// Read a document (stateful — sets lastReadFile for multi-file workflows)
+// Read a document
 await use_mcp_tool({
   server: "mcp-rtfm",
   tool: "read_doc",
@@ -131,18 +125,7 @@ await use_mcp_tool({
   }
 });
 
-// Read without tracking state
-await use_mcp_tool({
-  server: "mcp-rtfm",
-  tool: "read_doc",
-  args: {
-    projectPath: "/path/to/project",
-    docFile: "techStack.md",
-    trackState: false
-  }
-});
-
-// Update with content that links to other docs
+// Update with a targeted diff (replaces all occurrences of searchContent)
 await use_mcp_tool({
   server: "mcp-rtfm",
   tool: "update_doc",
@@ -150,8 +133,18 @@ await use_mcp_tool({
     projectPath: "/path/to/project",
     docFile: "techStack.md",
     searchContent: "[Why this domain is critical to the project]",
-    replaceContent: "The tech stack documentation provides essential context for development. See [[workflowDetails]] for implementation steps.",
-    continueToNext: true
+    replaceContent: "The tech stack documentation provides essential context for development. See [[workflowDetails]] for implementation steps."
+  }
+});
+
+// Or replace the entire file content at once
+await use_mcp_tool({
+  server: "mcp-rtfm",
+  tool: "update_doc",
+  args: {
+    projectPath: "/path/to/project",
+    docFile: "techStack.md",
+    content: "# Tech Stack\n\nUpdated full content here..."
   }
 });
 ```
@@ -169,7 +162,7 @@ const related = await use_mcp_tool({
   }
 });
 
-// Search across documentation with intelligent results
+// Search across documentation with fuzzy matching and relevance scoring
 const results = await use_mcp_tool({
   server: "mcp-rtfm",
   tool: "search_docs",
@@ -179,7 +172,7 @@ const results = await use_mcp_tool({
   }
 });
 
-// Results include weighted matches, line numbers, and full context
+// Results include matching lines with highlights and line numbers
 ```
 
 ### 4. Syncing Documentation with Codebase Changes
@@ -219,7 +212,7 @@ await use_mcp_tool({
 ### 5. Finding Documentation Gaps
 
 ```typescript
-// Find undocumented functions, classes, and API endpoints
+// Find undocumented functions, classes, and other symbols
 const gaps = await use_mcp_tool({
   server: "mcp-rtfm",
   tool: "analyze_content_gaps",
@@ -231,37 +224,51 @@ const gaps = await use_mcp_tool({
 // Results show gaps grouped by type and suggested doc file
 ```
 
-### 6. Creating Custom Templates
+### 6. Validating Documentation
 
 ```typescript
-// Create a custom template for architecture decisions
-await use_mcp_tool({
+// Validate wiki-links in documentation
+const validation = await use_mcp_tool({
   server: "mcp-rtfm",
-  tool: "customize_template",
+  tool: "validate_documentation",
   args: {
-    templateName: "architecture-decision",
-    content: `# {title}
-
-## Context
-[Background and context for the decision]
-
-## Decision
-[The architecture decision made]
-
-## Consequences
-[Impact and trade-offs of the decision]
-
-## Related Decisions
-[Links to related architecture decisions]`,
-    metadata: {
-      category: "architecture",
-      tags: ["decision-record", "design"]
-    }
+    projectPath: "/path/to/project"
   }
 });
+
+// Results show broken links with file locations
 ```
 
 ## 🔧 Installation
+
+### npm (Global)
+
+```bash
+npm install -g mcp-rtfm
+```
+
+After global install, the `mcp-rtfm` CLI is available:
+
+```json
+{
+  "mcpServers": {
+    "mcp-rtfm": {
+      "command": "mcp-rtfm"
+    }
+  }
+}
+```
+
+### From Source
+
+```bash
+git clone https://github.com/ryanjoachim/mcp-rtfm.git
+cd mcp-rtfm
+npm install
+npm run build
+```
+
+Then reference `build/index.js` in your MCP client config (see below).
 
 ### VSCode
 
@@ -298,21 +305,47 @@ Add to config file at:
 }
 ```
 
+### Claude Code
+
+For [Claude Code](https://claude.ai/code), add a `.mcp.json` file to your project root:
+
+```json
+{
+  "mcpServers": {
+    "mcp-rtfm": {
+      "command": "node",
+      "args": ["<path-to-mcp-rtfm>/build/index.js"]
+    }
+  }
+}
+```
+
+Or use the CLI after global install:
+
+```json
+{
+  "mcpServers": {
+    "mcp-rtfm": {
+      "command": "mcp-rtfm"
+    }
+  }
+}
+```
+
 ## 🎯 Advanced Features
 
 ### Project Auto-Detection
 
-The server automatically analyzes your codebase to pre-fill documentation:
+The server automatically analyzes your `package.json` to pre-fill documentation:
 
 - **Framework Detection**: Express, Fastify, React, Vue, Angular, Next.js, Nuxt, Prisma, Mongoose, Sequelize
-- **Pattern Detection**: TypeScript, Testing (Jest/Vitest)
-- **API Endpoint Discovery**: Scans source for Express/Fastify routes and decorator-based routes
-- **Component Detection**: Identifies React/Vue components from source files
+- **Pattern Detection**: TypeScript, Testing (Jest/Vitest), CLI tools, MiniSearch, Unified/Remark
 
 When running `analyze_project` with `mode: "analyze"`, the server:
 - Pre-fills `techStack.md` with detected frameworks table
-- Pre-fills `integrationGuides.md` with discovered API endpoints
-- Pre-fills `codebaseDetails.md` with detected UI components
+- Pre-fills `codebaseDetails.md` with extracted code symbols
+
+When running with `mode: "init"`, the server creates bare skeleton files with section headings only. Use `initDocs: true` (default) with `mode: "analyze"` to also create any missing base docs with pre-filled content from project analysis.
 
 ### Content Linking
 
@@ -322,50 +355,35 @@ Use `[[document-name]]` syntax to create links between documents. The server aut
 
 Documents are organized using:
 
-- Categories (e.g., "architecture", "api", "workflow", "technology", "documentation")
-- Tags for flexible grouping (auto-generated: "code-examples", "references", "error-handling", "configuration", "security")
+- Categories (e.g., "api", "workflow", "technology", "documentation")
+- Tags for flexible grouping (auto-generated: "api", "workflow", "technology", "code-examples", "references", "error-handling", "configuration", "security")
 - Automatic relationship discovery based on shared metadata
 - Content link analysis
 
-### Enhanced Content Analysis
+### Fuzzy Search with MiniSearch
 
-The server uses advanced libraries for better documentation management:
+The server uses MiniSearch for powerful search capabilities:
 
-- **unified/remark** for Markdown processing:
-  - AST-based content analysis
-  - Accurate heading structure detection
-  - Code block and link extraction
-  - Proper Markdown parsing and manipulation
+- Fuzzy matching across all documentation with 0.2 tolerance
+- Field-weighted search (titles given 2x priority)
+- Full content and metadata indexing
+- Efficient caching with TTL management (5-minute cache)
+- Real-time search index updates on every doc change
+- Falls back to regex scanning if the index is empty (before `analyze_project` is run)
 
-- **minisearch** for powerful search capabilities:
-  - Fast fuzzy searching across all documentation
-  - Field-weighted search (titles given higher priority)
-  - Full content and metadata indexing
-  - Efficient caching with TTL management (5-minute cache)
-  - Real-time search index updates
-
-### Intelligent Metadata Generation
+### Metadata Generation
 
 - Automatic content analysis for categorization
-- Smart tag generation based on content patterns
+- Tag generation based on content patterns
 - Structured front matter in documents
 - AST-based title and section detection
 - Code snippet identification and tagging
-- Context-aware result presentation
-
-### Template System
-
-- Built-in templates for common documentation types
-- Custom template support with metadata defaults
-- Template inheritance and override capabilities
-- Custom templates persist to `.handoff_docs/.rtfm-state/templates.json`
 
 ### State Persistence
 
 - State stored in `.handoff_docs/.rtfm-state/`
-- Persists: metadata, search index, template overrides, completion state
+- Persists: metadata and search index
 - Survives server restarts - restores search index and all state on startup
-- File locking with 30-second timeout prevents concurrent update conflicts
 
 ### Git Integration
 
@@ -378,16 +396,15 @@ When running inside a git repository:
 ### Content Gap Analysis
 
 Automatically finds undocumented code:
-- Extracts symbols: functions, classes, interfaces, types, API routes
-- Checks if each symbol is mentioned in any documentation
+- Extracts symbols: functions, constants, classes, interfaces, types
+- Checks if each symbol is mentioned in any documentation (with word-boundary matching)
 - Suggests which doc file should contain the documentation
 - Reports gaps by type and suggested document
 
 ### Documentation Validation
 
-- **Basic mode**: Validates `[[wiki-link]]` syntax - checks linked files exist
-- **Deep mode**: Additionally validates code snippets against actual source files
-- Reports broken links, stale snippets, with file locations
+- Validates `[[wiki-link]]` syntax - checks linked files exist
+- Reports broken links with file locations
 
 ## 🛠️ Development
 
@@ -410,11 +427,9 @@ MCP-RTFM includes security hardening for safe operation:
   - Rejects paths containing `../` sequences
   - Validates directory exists and is accessible
   - Resolves to absolute path before use
-- **Command Injection Protection**: Git commands use isolated stdio and validated paths
-  - Blocks dangerous shell characters: `;&|`$`(){}[]!\\`
-  - All git operations use `stdio: ["pipe", "pipe", "pipe"]`
-- **Operation Timeouts**: All git and file operations have 5-second timeouts to prevent hangs
-- **File Lock Timeouts**: Concurrent file operations use 30-second lock timeouts to prevent deadlocks
+- **Command Injection Protection**: Git commands use validated paths and isolated stdio
+  - All git operations use `execFile` with argument arrays (not shell strings)
+- **Operation Timeouts**: Git operations have 5-second timeouts to prevent hangs
 
 ## 🐛 Debugging
 
@@ -426,6 +441,18 @@ npm run inspector
 
 The Inspector will provide a URL to access debugging tools in your browser.
 
+## 🤝 Contributing
+
+Contributions are welcome! To get started:
+
+1. Fork the repository
+2. Create a feature branch: `git checkout -b my-feature`
+3. Make your changes and add tests if applicable
+4. Build and verify: `npm run build`
+5. Submit a pull request
+
+Please open an issue first to discuss significant changes.
+
 ## 📄 License
 
-MIT © [Model Context Protocol](https://github.com/modelcontextprotocol)
+MIT © [Ryan Joachim](https://github.com/ryanjoachim)

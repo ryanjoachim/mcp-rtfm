@@ -5,7 +5,7 @@
 import { CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
-import { state } from "../state.js";
+import { state, searchEngine } from "../persistence.js";
 import { searchDocContent, findRelatedDocs } from "../content.js";
 import { validateProjectPath } from "../validation.js";
 import { handleToolError } from "../utils.js";
@@ -35,9 +35,9 @@ export const searchDocs = async (request: CallToolRequest) => {
           type: "text",
           text: JSON.stringify({
             query,
+            totalResults: results.length,
             results,
-            cached: state.contextCache.lastQuery === query,
-            timestamp: state.contextCache.timestamp
+            searchMethod: searchEngine.documentCount > 0 ? "fuzzy-indexed" : "regex-scan"
           }, null, 2)
         }
       ]

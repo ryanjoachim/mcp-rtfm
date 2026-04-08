@@ -6,22 +6,17 @@ import * as fs from "fs/promises";
 import { CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
-import { state, searchEngine } from "../state.js";
-import { loadStateFromDisk, saveStateToDisk } from "../persistence.js";
-import { BASE_DOCS, getActualDocs, getTemplateForFile } from "../templates.js";
+import { state, searchEngine, loadStateFromDisk, saveStateToDisk } from "../persistence.js";
+import {
+  BASE_DOCS, getActualDocs, TEMPLATE_CONTENT,
+  enhanceDoc, getGitInfo, resetState, slugToTitle,
+  handleToolError, getDocsPath, invalidateContextCache
+} from "../utils.js";
 import { analyzeAndIndexDoc } from "../content.js";
 import { generatePreFilledContent } from "../project.js";
 import { validateProjectPath } from "../validation.js";
 import { CACHE_TTL } from "../types.js";
-import {
-  enhanceDoc,
-  getGitInfo,
-  resetState,
-  slugToTitle,
-  handleToolError,
-  getDocsPath,
-  invalidateContextCache
-} from "../utils.js";
+import { clearSignatureCache } from "../project.js";
 
 // ---------------------------------------------------------------------------
 // Init mode — creates missing BASE_DOCS skeleton files
@@ -37,7 +32,7 @@ async function handleInitMode(projectPath: string) {
     try {
       await fs.access(filePath);
     } catch {
-      await fs.writeFile(filePath, getTemplateForFile(doc).replace("{title}", slugToTitle(doc)));
+      await fs.writeFile(filePath, TEMPLATE_CONTENT.replace("{title}", slugToTitle(doc)));
       created.push(doc);
     }
   }
@@ -62,10 +57,6 @@ async function enhanceDocFile(doc: string, projectPath: string) {
   const { relatedDocs } = await analyzeAndIndexDoc(doc, filePath, content, projectPath);
   const metadata = state.metadata[doc]!;
   await enhanceDoc(filePath, content, metadata, relatedDocs);
-
-  if (!state.completedFiles.includes(doc)) {
-    state.completedFiles.push(doc);
-  }
 }
 
 // ---------------------------------------------------------------------------
@@ -81,10 +72,9 @@ async function handleAnalyzeMode(projectPath: string, initDocs: boolean) {
       const filePath = `${docsPath}/${doc}`;
       try {
         await fs.access(filePath);
-        // File exists - regenerate pre-filled content
-        await fs.writeFile(filePath, await generatePreFilledContent(doc, projectPath));
+        // File exists — skip to preserve user edits
       } catch {
-        // File doesn't exist - create with pre-filled content
+        // File doesn't exist — create with pre-filled content
         await fs.writeFile(filePath, await generatePreFilledContent(doc, projectPath));
       }
     }
@@ -102,7 +92,7 @@ async function handleAnalyzeMode(projectPath: string, initDocs: boolean) {
   }
 
   invalidateContextCache();
-  const gitInfo = getGitInfo(projectPath);
+  const gitInfo = await getGitInfo(projectPath);
   await saveStateToDisk(projectPath);
 
   return {
@@ -132,6 +122,7 @@ async function handleResetMode(projectPath: string) {
   await loadStateFromDisk(projectPath);
   resetState();
   searchEngine.removeAll();
+  clearSignatureCache();
 
   const files = await fs.readdir(docsPath);
   const markdownFiles = files.filter(f => f.endsWith(".md"));
@@ -145,7 +136,7 @@ async function handleResetMode(projectPath: string) {
   }
 
   invalidateContextCache();
-  const gitInfo = getGitInfo(projectPath);
+  const gitInfo = await getGitInfo(projectPath);
   await saveStateToDisk(projectPath);
 
   return {

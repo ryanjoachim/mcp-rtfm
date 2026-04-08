@@ -6,19 +6,16 @@ import * as fs from "fs/promises";
 import { CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
-import { state } from "../state.js";
-import { withFileLock, saveStateToDisk } from "../persistence.js";
+import { saveStateToDisk } from "../persistence.js";
 import { analyzeContent, categorizeContent, updateMetadata, updateSearchIndex } from "../content.js";
-import { getActualDocs } from "../templates.js";
 import { validateProjectPath } from "../validation.js";
 import { handleToolError, freshTimestamp, getDocsPath, invalidateContextCache } from "../utils.js";
 
-// Handler for read_doc (combines read_doc and get_doc_content)
+// Handler for read_doc
 export const readDoc = async (request: CallToolRequest) => {
-  const { projectPath, docFile, trackState = true } = request.params.arguments as {
+  const { projectPath, docFile } = request.params.arguments as {
     projectPath: string;
     docFile: string;
-    trackState?: boolean;
   };
 
   const validation = await validateProjectPath(projectPath);
@@ -33,13 +30,6 @@ export const readDoc = async (request: CallToolRequest) => {
     const filePath = `${getDocsPath(projectPath)}/${docFile}`;
     const content = await fs.readFile(filePath, "utf8");
 
-    if (trackState) {
-      state.lastReadFile = docFile;
-      state.lastReadContent = content;
-      state.currentFile = docFile;
-      state.inProgress = true;
-    }
-
     return {
       content: [{ type: "text", text: content }]
     };
@@ -51,13 +41,12 @@ export const readDoc = async (request: CallToolRequest) => {
 
 // Handler for update_doc
 export const updateDoc = async (request: CallToolRequest) => {
-  const { projectPath, docFile, searchContent, replaceContent, continueToNext = false, content } =
+  const { projectPath, docFile, searchContent, replaceContent, content } =
     request.params.arguments as {
       projectPath: string;
       docFile: string;
-      searchContent: string;
-      replaceContent: string;
-      continueToNext?: boolean;
+      searchContent?: string;
+      replaceContent?: string;
       content?: string;
     };
 
@@ -70,73 +59,57 @@ export const updateDoc = async (request: CallToolRequest) => {
     );
   }
 
+  // Require either full content or search+replace
+  if (!content && (!searchContent || !replaceContent)) {
+    throw new McpError(
+      ErrorCode.InvalidParams,
+      "Must provide either 'content' for full replacement, or both 'searchContent' and 'replaceContent' for diff-based update"
+    );
+  }
+
   try {
     const filePath = `${getDocsPath(projectPath)}/${docFile}`;
 
-    await withFileLock(filePath, async () => {
-      // Determine source content: provided directly or from state
-      let fileContent: string;
-      if (content !== undefined) {
-        fileContent = content;
-      } else if (state.lastReadFile === docFile && state.lastReadContent) {
-        fileContent = state.lastReadContent;
-      } else {
-        throw new McpError(
-          ErrorCode.InvalidParams,
-          `Must call read_doc first or provide content parameter`
-        );
-      }
+    // Read current file content
+    let fileContent = await fs.readFile(filePath, "utf8");
 
-      // Verify the search content exists in the file
+    if (content !== undefined) {
+      // Full content replacement
+      fileContent = content;
+    } else if (searchContent && replaceContent) {
+      // Diff-based update: verify the search content exists
       if (!fileContent.includes(searchContent)) {
         throw new McpError(
           ErrorCode.InvalidParams,
           `Search content not found in ${docFile}`
         );
       }
+      fileContent = fileContent.replaceAll(searchContent, replaceContent);
+    }
 
-      // Apply the diff
-      const newContent = fileContent.replace(searchContent, replaceContent);
-      await fs.writeFile(filePath, newContent, "utf8");
+    await fs.writeFile(filePath, fileContent, "utf8");
 
-      // Update state
-      state.lastReadContent = newContent;
-      if (!state.completedFiles.includes(docFile)) {
-        state.completedFiles.push(docFile);
-      }
+    // Update search index and metadata
+    try {
+      const analysis = await analyzeContent(fileContent);
+      const { category, tags } = categorizeContent(docFile, fileContent, analysis);
+      await updateMetadata(filePath, { title: analysis.title || docFile, category, tags });
+      updateSearchIndex(docFile, fileContent, {
+        title: analysis.title || docFile,
+        category,
+        tags,
+        lastUpdated: freshTimestamp(),
+        relatedDocs: []
+      });
+    } catch {
+      // Non-fatal: skip search index update if content analysis fails
+    }
 
-      // Advance to next file if continueToNext is true
-      if (continueToNext) {
-        const allDocs = await getActualDocs(getDocsPath(projectPath));
-        const currentIndex = allDocs.indexOf(docFile);
-        if (currentIndex < allDocs.length - 1) {
-          state.currentFile = allDocs[currentIndex + 1];
-        }
-        state.continueToNext = true;
-      }
+    // Invalidate context cache
+    invalidateContextCache();
 
-      // Update search index and metadata
-      try {
-        const analysis = await analyzeContent(newContent);
-        const { category, tags } = categorizeContent(docFile, newContent, analysis);
-        await updateMetadata(filePath, { title: analysis.title || docFile, category, tags });
-        updateSearchIndex(docFile, newContent, {
-          title: analysis.title || docFile,
-          category,
-          tags,
-          lastUpdated: freshTimestamp(),
-          relatedDocs: []
-        });
-      } catch {
-        // Non-fatal: skip search index update if content analysis fails
-      }
-
-      // Invalidate context cache
-      invalidateContextCache();
-
-      // Persist state
-      await saveStateToDisk(projectPath);
-    });
+    // Persist state
+    await saveStateToDisk(projectPath);
 
     return {
       content: [
@@ -144,9 +117,7 @@ export const updateDoc = async (request: CallToolRequest) => {
           type: "text",
           text: JSON.stringify({
             message: `Documentation updated: ${docFile}`,
-            updated: docFile,
-            continued: continueToNext && state.currentFile !== docFile,
-            currentFile: state.currentFile
+            updated: docFile
           }, null, 2)
         }
       ]
@@ -156,4 +127,3 @@ export const updateDoc = async (request: CallToolRequest) => {
     return handleToolError(error, "updating documentation");
   }
 };
-

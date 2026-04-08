@@ -1,53 +1,42 @@
 // ============================================================================
-// State Persistence and File Locking
+// Global State, Search Engine, and State Persistence
 // ============================================================================
 
 import * as fs from "fs/promises";
-import { state, searchEngine } from "./state.js";
+import MiniSearch from "minisearch";
+import type { DocState } from "./types.js";
+
+// Initialize search engine
+export const searchEngine = new MiniSearch({
+  fields: ['title', 'content', 'category', 'tags'],
+  storeFields: ['title', 'category', 'tags', 'lastUpdated'],
+  searchOptions: {
+    boost: { title: 2 },
+    fuzzy: 0.2
+  }
+});
+
+// Global application state
+export let state: DocState = {
+  metadata: {},
+  contextCache: {},
+  validationResults: {},
+  symbolMap: {},
+  // NOTE: lastPersistedAt intentionally omitted here - set after save
+};
+
+// Re-export types for convenience
+export type { DocState, DocMetadata, SearchResult } from "./types.js";
+
+// ============================================================================
+// State Persistence
+// ============================================================================
 
 export const STATE_DIR = ".rtfm-state";
 
 // Get the path to the persistence state directory for a project
 export const getStatePath = (projectPath: string): string => {
   return `${projectPath}/.handoff_docs/${STATE_DIR}`;
-};
-
-// File locking for concurrent update protection with timeout
-export const fileLocks: Record<string, Promise<void>> = {};
-
-const LOCK_TIMEOUT_MS = 30000; // 30 second timeout per operation
-
-export const withFileLock = async (filePath: string, fn: () => Promise<void>): Promise<void> => {
-  const lockKey = filePath;
-
-  // Wait for existing lock with timeout
-  const startTime = Date.now();
-  while (fileLocks[lockKey]) {
-    if (Date.now() - startTime > LOCK_TIMEOUT_MS) {
-      throw new Error(`Timeout waiting for lock on ${filePath}`);
-    }
-    await fileLocks[lockKey];
-  }
-
-  let release: () => void;
-  const lockPromise = new Promise<void>((resolve, reject) => {
-    release = resolve;
-    // Reject after timeout to prevent permanent blocking
-    setTimeout(() => {
-      if (fileLocks[lockKey] === lockPromise) {
-        delete fileLocks[lockKey];
-        reject(new Error(`Lock timeout for ${filePath}`));
-      }
-    }, LOCK_TIMEOUT_MS);
-  });
-  fileLocks[lockKey] = lockPromise;
-
-  try {
-    await fn();
-  } finally {
-    delete fileLocks[lockKey];
-    release!();
-  }
 };
 
 // Save state to disk for persistence across restarts
@@ -65,20 +54,6 @@ export const saveStateToDisk = async (projectPath: string): Promise<void> => {
     const searchIndexPath = `${statePath}/search-index.json`;
     const searchIndexDump = searchEngine.toJSON();
     await fs.writeFile(searchIndexPath, JSON.stringify(searchIndexDump), "utf8");
-
-    // Save template overrides
-    const templatesPath = `${statePath}/templates.json`;
-    await fs.writeFile(templatesPath, JSON.stringify(state.templateOverrides), "utf8");
-
-    // Save completion state
-    const completionPath = `${statePath}/completion.json`;
-    await fs.writeFile(completionPath, JSON.stringify({
-      completedFiles: state.completedFiles,
-      currentFile: state.currentFile,
-      inProgress: state.inProgress,
-      lastReadFile: state.lastReadFile,
-      lastPersistedAt: new Date().toISOString()
-    }), "utf8");
 
     // Only update lastPersistedAt after successful save
     state.lastPersistedAt = new Date().toISOString();
@@ -111,47 +86,31 @@ export const loadStateFromDisk = async (projectPath: string): Promise<boolean> =
 
     // Load search index
     try {
-        const searchIndexPath = `${statePath}/search-index.json`;
-        const searchIndexContent = await fs.readFile(searchIndexPath, "utf8");
-        const searchIndexDump = JSON.parse(searchIndexContent);
+      const searchIndexPath = `${statePath}/search-index.json`;
+      const searchIndexContent = await fs.readFile(searchIndexPath, "utf8");
+      const searchIndexDump = JSON.parse(searchIndexContent);
 
-        // MiniSearch v7 uses searchEngine.replace() to restore from JSON
-        // We need to re-add all documents from the stored data
-        if (searchIndexDump && searchIndexDump.documents) {
-          searchEngine.removeAll();
-          for (const [docId, docData] of Object.entries(searchIndexDump.documents)) {
-            searchEngine.add({
-              id: docId,
-              ...(docData as object)
-            });
-          }
+      if (searchIndexDump && searchIndexDump.documents) {
+        searchEngine.removeAll();
+        for (const [docId, docData] of Object.entries(searchIndexDump.documents)) {
+          searchEngine.add({
+            id: docId,
+            ...(docData as object)
+          });
         }
-      } catch {
-        // No search index file or invalid JSON
       }
-
-    // Load template overrides
-    try {
-      const templatesPath = `${statePath}/templates.json`;
-      const templatesContent = await fs.readFile(templatesPath, "utf8");
-      const loadedTemplates = JSON.parse(templatesContent);
-      state.templateOverrides = loadedTemplates;
     } catch {
-      // No templates file or invalid JSON
+      // No search index file or invalid JSON
     }
 
-    // Load completion state (includes lastPersistedAt - bug fix)
+    // Load lastPersistedAt from legacy completion.json (backwards compat)
     try {
       const completionPath = `${statePath}/completion.json`;
       const completionContent = await fs.readFile(completionPath, "utf8");
       const loadedCompletion = JSON.parse(completionContent);
-      state.completedFiles = loadedCompletion.completedFiles || [];
-      state.currentFile = loadedCompletion.currentFile;
-      state.inProgress = loadedCompletion.inProgress || false;
-      state.lastReadFile = loadedCompletion.lastReadFile;
       state.lastPersistedAt = loadedCompletion.lastPersistedAt;
     } catch {
-      // No completion file or invalid JSON
+      // No completion file or invalid JSON - that's fine
     }
 
     return true;

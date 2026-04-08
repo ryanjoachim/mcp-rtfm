@@ -3,14 +3,13 @@
 // ============================================================================
 
 import * as fs from "fs/promises";
-import { execSync } from "child_process";
+import { execFile as execFileCb } from "child_process";
+import { promisify } from "util";
 import type { ChangedFile, RefreshSuggestion, RefreshResult } from "./types.js";
-import { getActualDocs } from "./templates.js";
+import { getActualDocs } from "./utils.js";
 import { validateProjectPath } from "./validation.js";
 
-// Validate project path before using with git commands
-const validatePathForGit = async (projectPath: string): Promise<boolean> =>
-  isGitRepository(projectPath);
+const execFileAsync = promisify(execFileCb);
 
 // Check if directory is inside a git work tree
 export const isGitRepository = async (dir: string): Promise<boolean> => {
@@ -19,7 +18,7 @@ export const isGitRepository = async (dir: string): Promise<boolean> => {
     return false;
   }
   try {
-    execSync("git rev-parse --is-inside-work-tree", { cwd: dir, stdio: ["pipe", "pipe", "pipe"], timeout: 5000 });
+    await execFileAsync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: dir, timeout: 5000 });
     return true;
   } catch {
     return false;
@@ -109,9 +108,17 @@ export const applySuggestion = async (docPath: string, suggestion: RefreshSugges
   } else if (suggestion.section === "Project Structure") {
     newContent = content.replace(suggestion.currentContent, suggestion.suggestedContent);
   } else if (suggestion.section === "New Files") {
-    newContent = suggestion.currentContent === ""
-      ? content + "\n\n" + suggestion.suggestedContent
-      : content;
+    // Check if a "## New Files" section already exists
+    if (content.includes("## New Files")) {
+      // Append to existing section
+      newContent = content.replace(
+        /## New Files\n([\s\S]*?)(?=\n## |$)/,
+        `## New Files\n$1\n${suggestion.suggestedContent}`
+      );
+    } else {
+      // Add new section at the end
+      newContent = content + "\n\n## New Files\n" + suggestion.suggestedContent;
+    }
   } else {
     newContent = content.replace(suggestion.currentContent, suggestion.suggestedContent);
   }
@@ -126,7 +133,7 @@ export const applySuggestion = async (docPath: string, suggestion: RefreshSugges
 // Detect changes using git
 export const detectGitChanges = async (projectPath: string): Promise<ChangedFile[]> => {
   // Validate path before use
-  const isValid = await validatePathForGit(projectPath);
+  const isValid = await isGitRepository(projectPath);
   if (!isValid) {
     return [];
   }
@@ -134,29 +141,39 @@ export const detectGitChanges = async (projectPath: string): Promise<ChangedFile
   const changes: ChangedFile[] = [];
 
   try {
-    // Get modified/staged files
-    const diffOutput = execSync(
-      "git diff --name-status HEAD",
-      { cwd: projectPath, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], timeout: 5000 }
-    ).toString().trim();
+    // Get modified/staged files and untracked files in parallel
+    const [diffResult, untrackedResult] = await Promise.all([
+      execFileAsync("git", ["diff", "--name-status", "HEAD"], { cwd: projectPath, timeout: 5000 }),
+      execFileAsync("git", ["ls-files", "--others", "--exclude-standard"], { cwd: projectPath, timeout: 5000 })
+    ]);
 
-    // Get untracked files
-    const untrackedOutput = execSync(
-      "git ls-files --others --exclude-standard",
-      { cwd: projectPath, encoding: "utf8", stdio: ["pipe", "pipe", "pipe"], timeout: 5000 }
-    ).toString().trim();
+    const diffOutput = diffResult.stdout.trim();
+    const untrackedOutput = untrackedResult.stdout.trim();
 
-    // Parse diff output (format: "M file.txt", "A newfile.txt", etc.)
+    // Parse diff output (format: "M\tfile.txt", "A\tnewfile.txt", "R100\told\tnew")
     for (const line of diffOutput.split("\n")) {
       if (!line) continue;
       const parts = line.split("\t");
-      const status = parts[0];
-      const path = parts.slice(1).join("\t");
-      changes.push({
-        path,
-        status: parseStatus(status),
-        isDocumentation: path.startsWith(".handoff_docs/")
-      });
+      const statusCode = parts[0].charAt(0); // Extract first char: M, A, D, R, C, U
+
+      if (statusCode === "R" && parts.length >= 3) {
+        // Rename: old path is parts[1], new path is parts[2]
+        const newPath = parts[2];
+        changes.push({
+          path: newPath,
+          status: "renamed",
+          isDocumentation: newPath.startsWith(".handoff_docs/")
+        });
+      } else {
+        const filePath = parts.slice(1).join("\t");
+        if (filePath) {
+          changes.push({
+            path: filePath,
+            status: parseStatus(statusCode),
+            isDocumentation: filePath.startsWith(".handoff_docs/")
+          });
+        }
+      }
     }
 
     // Parse untracked files

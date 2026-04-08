@@ -3,18 +3,55 @@
 // ============================================================================
 
 import * as fs from "fs/promises";
-import { execSync } from "child_process";
-import { state } from "./state.js";
+import { execFile as execFileCb } from "child_process";
+import { promisify } from "util";
+import { state } from "./persistence.js";
 import type { DocMetadata } from "./types.js";
+
+const execFileAsync = promisify(execFileCb);
 
 export const sourceExtensions = [".ts", ".js", ".tsx", ".jsx"] as const;
 
-export const WIKI_LINK_REGEX = /\[\[([^\]]+)\]\]/g;
+// Base set of docs created by default; actual doc list is derived from the filesystem
+export const BASE_DOCS = [
+  "techStack.md",
+  "codebaseDetails.md",
+  "workflowDetails.md",
+  "integrationGuides.md",
+  "errorHandling.md",
+  "handoff_notes.md"
+];
 
-export const DOCS_DIR = ".handoff_docs";
+export const TEMPLATE_CONTENT = `# {title}
+
+## Purpose and Overview
+[Why this domain is critical to the project]
+
+## Step-by-Step Explanations
+[Concrete, detailed steps for implementation and maintenance]
+
+## Annotated Examples
+[Code snippets, diagrams, or flowcharts for clarity]
+
+## Contextual Notes
+[Historical decisions, trade-offs, and anticipated challenges]
+
+## Actionable Advice
+[Gotchas, edge cases, and common pitfalls to avoid]
+`;
+
+// Returns the actual docs in the project (BASE_DOCS + any custom ones added to the filesystem)
+export const getActualDocs = async (docsPath: string): Promise<string[]> => {
+  try {
+    const files = await fs.readdir(docsPath);
+    return files.filter(f => f.endsWith(".md")).sort();
+  } catch {
+    return [];
+  }
+};
 
 /** Returns the absolute path to the .handoff_docs directory for a project. */
-export const getDocsPath = (projectPath: string) => `${projectPath}/${DOCS_DIR}`;
+export const getDocsPath = (projectPath: string) => `${projectPath}/.handoff_docs`;
 
 /** Current ISO timestamp — used for lastUpdated fields. */
 export const freshTimestamp = () => new Date().toISOString();
@@ -66,9 +103,11 @@ relatedDocs: ${relatedDocs.join(", ")}`;
   if (content.startsWith("---")) {
     const end = content.indexOf("---", 3);
     if (end === -1) return false;
+    const bodyContent = content.slice(end + 3);
+    const separator = bodyContent.startsWith("\n") ? "" : "\n\n";
     newContent = `---
 ${frontMatter}
----${content.slice(end + 3)}`;
+---${separator}${bodyContent}`;
   } else {
     newContent = `---
 ${frontMatter}
@@ -88,16 +127,21 @@ ${content}`;
  * Retrieve git remote URL, current branch, and last commit hash for a project.
  * Returns an empty object if not a git repo or git is unavailable.
  */
-export const getGitInfo = (projectPath: string): {
+export const getGitInfo = async (projectPath: string): Promise<{
   remoteUrl?: string;
   branch?: string;
   lastCommit?: string;
-} => {
+}> => {
   try {
+    const [remoteUrl, branch, lastCommit] = await Promise.all([
+      execFileAsync("git", ["config", "--get", "remote.origin.url"], { cwd: projectPath, timeout: 5000 }),
+      execFileAsync("git", ["branch", "--show-current"], { cwd: projectPath, timeout: 5000 }),
+      execFileAsync("git", ["log", "-1", "--format=%H"], { cwd: projectPath, timeout: 5000 })
+    ]);
     return {
-      remoteUrl: execSync("git config --get remote.origin.url", { cwd: projectPath, timeout: 5000 }).toString().trim(),
-      branch: execSync("git branch --show-current", { cwd: projectPath, timeout: 5000 }).toString().trim(),
-      lastCommit: execSync("git log -1 --format=%H", { cwd: projectPath, timeout: 5000 }).toString().trim()
+      remoteUrl: remoteUrl.stdout.trim(),
+      branch: branch.stdout.trim(),
+      lastCommit: lastCommit.stdout.trim()
     };
   } catch {
     return {};
@@ -105,20 +149,13 @@ export const getGitInfo = (projectPath: string): {
 };
 
 /**
- * Reset the in-memory documentation state (completed files, in-progress flags,
- * caches, etc.) while preserving the lastPersistedAt timestamp.
+ * Reset the in-memory documentation state (metadata, caches, etc.)
+ * while preserving the lastPersistedAt timestamp.
  */
 export const resetState = () => {
   const preservedLastPersistedAt = state.lastPersistedAt;
-  state.currentFile = null;
-  state.completedFiles = [];
-  state.inProgress = false;
-  state.lastReadFile = null;
-  state.lastReadContent = null;
-  state.continueToNext = false;
   state.metadata = {};
   state.contextCache = {};
-  state.templateOverrides = {};
   state.validationResults = {};
   state.symbolMap = {};
   state.lastPersistedAt = preservedLastPersistedAt;

@@ -68,7 +68,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "read_doc",
-        description: "Read a documentation file. Use trackState: false for a stateless read (equivalent to the former get_doc_content).",
+        description: "Read a documentation file.",
         inputSchema: {
           type: "object",
           properties: {
@@ -79,11 +79,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             docFile: {
               type: "string",
               description: "Name of the documentation file to read"
-            },
-            trackState: {
-              type: "boolean",
-              description: "If true (default), tracks read state for multi-file workflows. Set to false for a stateless read.",
-              default: true
             }
           },
           required: ["projectPath", "docFile"]
@@ -91,7 +86,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "update_doc",
-        description: "Update a specific documentation file using diff-based changes. Content can be provided directly or via prior read_doc call.",
+        description: "Update a specific documentation file. Provide either 'content' for a full replacement, or 'searchContent' and 'replaceContent' for a targeted diff.",
         inputSchema: {
           type: "object",
           properties: {
@@ -105,22 +100,18 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             },
             searchContent: {
               type: "string",
-              description: "Content to search for in the file"
+              description: "Content to search for in the file (for diff-based update)"
             },
             replaceContent: {
               type: "string",
               description: "Content to replace the search content with"
             },
-            continueToNext: {
-              type: "boolean",
-              description: "Whether to continue to the next file after this update"
-            },
             content: {
               type: "string",
-              description: "Direct file content for update (optional - omit to use content from read_doc)"
+              description: "Full file content for replacement (use instead of searchContent/replaceContent)"
             }
           },
-          required: ["projectPath", "docFile", "searchContent", "replaceContent"]
+          required: ["projectPath", "docFile"]
         }
       },
       {
@@ -171,36 +162,6 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
             }
           },
           required: ["projectPath", "docFile"]
-        }
-      },
-      {
-        name: "customize_template",
-        description: "Create or update a custom documentation template",
-        inputSchema: {
-          type: "object",
-          properties: {
-            projectPath: {
-              type: "string",
-              description: "Path to the project root directory (optional - for persisting custom templates)"
-            },
-            templateName: {
-              type: "string",
-              description: "Name of the template"
-            },
-            content: {
-              type: "string",
-              description: "Template content with {title} placeholder"
-            },
-            metadata: {
-              type: "object",
-              description: "Default metadata for the template",
-              properties: {
-                category: { type: "string" },
-                tags: { type: "array", items: { type: "string" } }
-              }
-            }
-          },
-          required: ["templateName", "content"]
         }
       },
       {
@@ -259,7 +220,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "analyze_content_gaps",
-        description: "Analyze codebase to find undocumented functions, classes, API endpoints, and other symbols that should be documented",
+        description: "Analyze codebase to find undocumented functions, classes, and other symbols that should be documented",
         inputSchema: {
           type: "object",
           properties: {
@@ -278,19 +239,13 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "validate_documentation",
-        description: "Validate documentation for broken links and outdated code snippets",
+        description: "Validate documentation for broken wiki-links",
         inputSchema: {
           type: "object",
           properties: {
             projectPath: {
               type: "string",
               description: "Path to the project root directory"
-            },
-            validationLevel: {
-              type: "string",
-              enum: ["basic", "deep"],
-              description: "Validation depth: 'basic' checks links only, 'deep' also validates code snippets",
-              default: "basic"
             }
           },
           required: ["projectPath"]
@@ -324,8 +279,6 @@ server.setRequestHandler(CallToolRequestSchema, async (request: CallToolRequest)
       return projectHandlers.analyzeContentGapsHandler(request);
     case "validate_documentation":
       return projectHandlers.validateDocumentationHandler(request);
-    case "customize_template":
-      return projectHandlers.customizeTemplate(request);
 
     default:
       throw new McpError(
