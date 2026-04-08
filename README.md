@@ -30,12 +30,15 @@ npm run build
 # Add to your MCP settings and start using
 await use_mcp_tool({
   server: "mcp-rtfm",
-  tool: "analyze_project_with_metadata", // Enhanced initialization
-  args: { projectPath: "/path/to/project" }
+  tool: "analyze_project",
+  args: {
+    projectPath: "/path/to/project",
+    options: { mode: "analyze", initDocs: true }
+  }
 });
 
 // This will:
-// 1. Create documentation structure
+// 1. Create documentation structure (initDocs: true)
 // 2. Analyze content with unified/remark
 // 3. Generate intelligent metadata
 // 4. Build search index with minisearch
@@ -47,28 +50,27 @@ await use_mcp_tool({
 
 ### Documentation Management Tools
 
-- `analyze_existing_docs` - Analyze and enhance existing documentation with content analysis and metadata
-- `analyze_project_with_metadata` - Initialize documentation structure with enhanced content analysis and metadata generation
-- `analyze_project` - Basic initialization of documentation structure
-- `read_doc` - Read a documentation file (required before updating)
-- `update_doc` - Update documentation using diff-based changes
-- `get_doc_content` - Get current content of a documentation file
-- `get_project_info` - Get project structure and documentation status
-- `search_docs` - Search across documentation files with highlighted results
-- `update_metadata` - Update documentation metadata
-- `get_related_docs` - Find related documentation based on metadata and content links
+- `analyze_content_gaps` - Find undocumented functions, classes, API endpoints, and other symbols
+- `analyze_project` - Analyze project and manage documentation. Use `mode: "init"` (default) to create skeleton docs, `mode: "analyze"` to enhance existing docs with metadata, or `mode: "reset"` to clear state and re-analyze. Use `initDocs: true` with `mode: "analyze"` to also create missing skeleton docs.
 - `customize_template` - Create or update documentation templates
+- `get_project_info` - Get project structure and documentation status
+- `get_related_docs` - Find related documentation based on metadata and content links
+- `read_doc` - Read a documentation file. Use `trackState: false` for a stateless read.
+- `refresh_documentation` - Scan codebase for changes and refresh docs. Use `mode: "sync"` (default) for git-based change detection, or `mode: "analyze"` to re-analyze content and regenerate metadata.
+- `search_docs` - Search across documentation files with highlighted results
+- `update_doc` - Update documentation using diff-based changes
+- `validate_documentation` - Validate documentation for broken links and outdated code snippets
 
 ### Default Documentation Files
 
 The server automatically creates and manages these core documentation files:
 
-- `techStack.md` - Detailed inventory of tools, libraries, and configurations
 - `codebaseDetails.md` - Low-level explanations of code structure and logic
-- `workflowDetails.md` - Step-by-step workflows for key processes
-- `integrationGuides.md` - Instructions for external system connections
 - `errorHandling.md` - Troubleshooting strategies and practices
 - `handoff_notes.md` - Summary of key themes and next steps
+- `integrationGuides.md` - Instructions for external system connections
+- `techStack.md` - Detailed inventory of tools, libraries, and configurations
+- `workflowDetails.md` - Step-by-step workflows for key processes
 
 ### Documentation Templates
 
@@ -82,84 +84,61 @@ Custom templates can be created using the `customize_template` tool.
 
 ## 📝 Example Workflows
 
-### 1. Analyzing Existing Documentation
+### 1. Setting Up Documentation
 
 ```typescript
-// Enhance existing documentation with advanced analysis
+// Initialize and analyze documentation in one step
 await use_mcp_tool({
   server: "mcp-rtfm",
-  tool: "analyze_existing_docs",
-  args: { projectPath: "/path/to/project" }
-});
-
-// This will:
-// - Find all markdown files in .handoff_docs
-// - Analyze content structure with unified/remark
-// - Generate intelligent metadata
-// - Build search index
-// - Add front matter if not present
-// - Establish document relationships
-// - Preserve existing content
-
-// The results include:
-// - Enhanced metadata for all docs
-// - Search index population
-// - Content relationship mapping
-// - Git context if available
-```
-
-### 2. Enhanced Project Documentation Setup
-
-```typescript
-// Initialize documentation with advanced content analysis
-await use_mcp_tool({
-  server: "mcp-rtfm",
-  tool: "analyze_project_with_metadata",
-  args: { projectPath: "/path/to/project" }
-});
-
-// Results include:
-// - Initialized documentation files
-// - Generated metadata from content analysis
-// - Established document relationships
-// - Populated search index
-// - Added structured front matter
-// - Git repository context
-
-// Get enhanced project information
-const projectInfo = await use_mcp_tool({
-  server: "mcp-rtfm",
-  tool: "get_project_info",
-  args: { projectPath: "/path/to/project" }
-});
-
-// Search across documentation with intelligent results
-const searchResults = await use_mcp_tool({
-  server: "mcp-rtfm",
-  tool: "search_docs",
+  tool: "analyze_project",
   args: {
     projectPath: "/path/to/project",
-    query: "authentication"
+    options: { mode: "analyze", initDocs: true }
   }
 });
 
-// Results include:
-// - Weighted matches (title matches prioritized)
-// - Fuzzy search results
-// - Full content context
-// - Related document suggestions
+// Just create skeleton files (no analysis)
+await use_mcp_tool({
+  server: "mcp-rtfm",
+  tool: "analyze_project",
+  args: {
+    projectPath: "/path/to/project",
+    options: { mode: "init" }
+  }
+});
+
+// Re-analyze existing docs (clears state first)
+await use_mcp_tool({
+  server: "mcp-rtfm",
+  tool: "analyze_project",
+  args: {
+    projectPath: "/path/to/project",
+    options: { mode: "reset" }
+  }
+});
 ```
 
-### 3. Updating Documentation with Content Links
+### 2. Reading and Updating Documentation
 
 ```typescript
-// First read the document
+// Read a document (stateful — sets lastReadFile for multi-file workflows)
 await use_mcp_tool({
   server: "mcp-rtfm",
   tool: "read_doc",
   args: {
     projectPath: "/path/to/project",
     docFile: "techStack.md"
+  }
+});
+
+// Read without tracking state
+await use_mcp_tool({
+  server: "mcp-rtfm",
+  tool: "read_doc",
+  args: {
+    projectPath: "/path/to/project",
+    docFile: "techStack.md",
+    trackState: false
   }
 });
 
@@ -172,29 +151,14 @@ await use_mcp_tool({
     docFile: "techStack.md",
     searchContent: "[Why this domain is critical to the project]",
     replaceContent: "The tech stack documentation provides essential context for development. See [[workflowDetails]] for implementation steps.",
-    continueToNext: true // Automatically move to next document
+    continueToNext: true
   }
 });
 ```
 
-### 4. Managing Documentation Metadata
+### 3. Finding and Reading Related Documentation
 
 ```typescript
-// Update metadata for better organization
-await use_mcp_tool({
-  server: "mcp-rtfm",
-  tool: "update_metadata",
-  args: {
-    projectPath: "/path/to/project",
-    docFile: "techStack.md",
-    metadata: {
-      title: "Technology Stack Overview",
-      category: "architecture",
-      tags: ["infrastructure", "dependencies", "configuration"]
-    }
-  }
-});
-
 // Find related documentation
 const related = await use_mcp_tool({
   server: "mcp-rtfm",
@@ -204,12 +168,8 @@ const related = await use_mcp_tool({
     docFile: "techStack.md"
   }
 });
-```
 
-### 5. Searching Documentation with Context
-
-```typescript
-// Search with highlighted results
+// Search across documentation with intelligent results
 const results = await use_mcp_tool({
   server: "mcp-rtfm",
   tool: "search_docs",
@@ -219,11 +179,56 @@ const results = await use_mcp_tool({
   }
 });
 
-// Results include:
-// - File name
-// - Line numbers
-// - Highlighted matches
-// - Context around matches
+// Results include weighted matches, line numbers, and full context
+```
+
+### 4. Syncing Documentation with Codebase Changes
+
+```typescript
+// Preview changes without applying (dryRun is default)
+const preview = await use_mcp_tool({
+  server: "mcp-rtfm",
+  tool: "refresh_documentation",
+  args: {
+    projectPath: "/path/to/project",
+    options: { mode: "sync", dryRun: true }
+  }
+});
+
+// Apply changes detected since last refresh
+await use_mcp_tool({
+  server: "mcp-rtfm",
+  tool: "refresh_documentation",
+  args: {
+    projectPath: "/path/to/project",
+    options: { mode: "sync", dryRun: false }
+  }
+});
+
+// Re-analyze and regenerate metadata for all docs
+await use_mcp_tool({
+  server: "mcp-rtfm",
+  tool: "refresh_documentation",
+  args: {
+    projectPath: "/path/to/project",
+    options: { mode: "analyze" }
+  }
+});
+```
+
+### 5. Finding Documentation Gaps
+
+```typescript
+// Find undocumented functions, classes, and API endpoints
+const gaps = await use_mcp_tool({
+  server: "mcp-rtfm",
+  tool: "analyze_content_gaps",
+  args: {
+    projectPath: "/path/to/project"
+  }
+});
+
+// Results show gaps grouped by type and suggested doc file
 ```
 
 ### 6. Creating Custom Templates
@@ -258,13 +263,7 @@ await use_mcp_tool({
 
 ## 🔧 Installation
 
-### VSCode (Roo Cline)
-
-Add to settings file at:
-Add to settings file at:
-- Windows: `%APPDATA%\Code\User\globalStorage\rooveterinaryinc.roo-cline\settings\cline_mcp_settings.json`
-- MacOS: `~/Library/Application Support/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
-- Linux: `~/.config/Code/User/globalStorage/rooveterinaryinc.roo-cline/settings/cline_mcp_settings.json`
+### VSCode
 
 ```json
 {
@@ -301,6 +300,20 @@ Add to config file at:
 
 ## 🎯 Advanced Features
 
+### Project Auto-Detection
+
+The server automatically analyzes your codebase to pre-fill documentation:
+
+- **Framework Detection**: Express, Fastify, React, Vue, Angular, Next.js, Nuxt, Prisma, Mongoose, Sequelize
+- **Pattern Detection**: TypeScript, Testing (Jest/Vitest)
+- **API Endpoint Discovery**: Scans source for Express/Fastify routes and decorator-based routes
+- **Component Detection**: Identifies React/Vue components from source files
+
+When running `analyze_project` with `mode: "analyze"`, the server:
+- Pre-fills `techStack.md` with detected frameworks table
+- Pre-fills `integrationGuides.md` with discovered API endpoints
+- Pre-fills `codebaseDetails.md` with detected UI components
+
 ### Content Linking
 
 Use `[[document-name]]` syntax to create links between documents. The server automatically tracks these relationships and includes them when finding related documentation.
@@ -309,8 +322,8 @@ Use `[[document-name]]` syntax to create links between documents. The server aut
 
 Documents are organized using:
 
-- Categories (e.g., "architecture", "api", "workflow")
-- Tags for flexible grouping
+- Categories (e.g., "architecture", "api", "workflow", "technology", "documentation")
+- Tags for flexible grouping (auto-generated: "code-examples", "references", "error-handling", "configuration", "security")
 - Automatic relationship discovery based on shared metadata
 - Content link analysis
 
@@ -328,7 +341,7 @@ The server uses advanced libraries for better documentation management:
   - Fast fuzzy searching across all documentation
   - Field-weighted search (titles given higher priority)
   - Full content and metadata indexing
-  - Efficient caching with TTL management
+  - Efficient caching with TTL management (5-minute cache)
   - Real-time search index updates
 
 ### Intelligent Metadata Generation
@@ -345,7 +358,36 @@ The server uses advanced libraries for better documentation management:
 - Built-in templates for common documentation types
 - Custom template support with metadata defaults
 - Template inheritance and override capabilities
-- Placeholder system for consistent formatting
+- Custom templates persist to `.handoff_docs/.rtfm-state/templates.json`
+
+### State Persistence
+
+- State stored in `.handoff_docs/.rtfm-state/`
+- Persists: metadata, search index, template overrides, completion state
+- Survives server restarts - restores search index and all state on startup
+- File locking with 30-second timeout prevents concurrent update conflicts
+
+### Git Integration
+
+When running inside a git repository:
+- Detects changes using `git diff` and `git ls-files`
+- Falls back to modification time scanning for non-git projects
+- Captures git context: remote URL, branch, last commit
+- Generates ASCII project structure trees
+
+### Content Gap Analysis
+
+Automatically finds undocumented code:
+- Extracts symbols: functions, classes, interfaces, types, API routes
+- Checks if each symbol is mentioned in any documentation
+- Suggests which doc file should contain the documentation
+- Reports gaps by type and suggested document
+
+### Documentation Validation
+
+- **Basic mode**: Validates `[[wiki-link]]` syntax - checks linked files exist
+- **Deep mode**: Additionally validates code snippets against actual source files
+- Reports broken links, stale snippets, with file locations
 
 ## 🛠️ Development
 
@@ -359,6 +401,20 @@ npm run build
 # Development with auto-rebuild
 npm run watch
 ```
+
+## 🔒 Security
+
+MCP-RTFM includes security hardening for safe operation:
+
+- **Path Validation**: All `projectPath` inputs are validated to prevent path traversal attacks
+  - Rejects paths containing `../` sequences
+  - Validates directory exists and is accessible
+  - Resolves to absolute path before use
+- **Command Injection Protection**: Git commands use isolated stdio and validated paths
+  - Blocks dangerous shell characters: `;&|`$`(){}[]!\\`
+  - All git operations use `stdio: ["pipe", "pipe", "pipe"]`
+- **Operation Timeouts**: All git and file operations have 5-second timeouts to prevent hangs
+- **File Lock Timeouts**: Concurrent file operations use 30-second lock timeouts to prevent deadlocks
 
 ## 🐛 Debugging
 

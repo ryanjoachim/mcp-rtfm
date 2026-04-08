@@ -7,9 +7,13 @@ build/
 
 # IDE files
 .vscode/
+.roo/
 .idea/
 *.sublime-*
-.handoff_docs
+.handoff_docs/
+.claude/
+CLAUDE.md
+.mcp.json
 
 # Logs
 *.log
