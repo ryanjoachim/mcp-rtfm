@@ -6,17 +6,18 @@ import * as fs from "fs/promises";
 import { CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
-import { state, searchEngine, loadStateFromDisk, saveStateToDisk } from "../persistence.js";
+import { contextManager } from "../project-context.js";
 import {
   BASE_DOCS, getActualDocs, TEMPLATE_CONTENT,
-  enhanceDoc, getGitInfo, resetState, slugToTitle,
-  handleToolError, getDocsPath, invalidateContextCache
+  enhanceDoc, getGitInfo, slugToTitle,
+  handleToolError, getDocsPath
 } from "../utils.js";
+import { logger } from "../logger.js";
 import { analyzeAndIndexDoc } from "../content.js";
-import { generatePreFilledContent } from "../project.js";
+import { generatePreFilledContent, clearSignatureCache } from "../project.js";
 import { validateProjectPath } from "../validation.js";
 import { CACHE_TTL } from "../types.js";
-import { clearSignatureCache } from "../project.js";
+import { AnalyzeProjectSchema } from "../schemas.js";
 
 // ---------------------------------------------------------------------------
 // Init mode — creates missing BASE_DOCS skeleton files
@@ -32,6 +33,7 @@ async function handleInitMode(projectPath: string) {
     try {
       await fs.access(filePath);
     } catch {
+      // File doesn't exist — create it with template content
       await fs.writeFile(filePath, TEMPLATE_CONTENT.replace("{title}", slugToTitle(doc)));
       created.push(doc);
     }
@@ -49,13 +51,13 @@ async function handleInitMode(projectPath: string) {
 // Core doc enhancement — analyze, index, and enhance front matter
 // ---------------------------------------------------------------------------
 
-async function enhanceDocFile(doc: string, projectPath: string) {
+async function enhanceDocFile(ctx: ReturnType<typeof contextManager.getContext>, doc: string, projectPath: string) {
   const docsPath = getDocsPath(projectPath);
   const filePath = `${docsPath}/${doc}`;
   const content = await fs.readFile(filePath, "utf8");
 
-  const { relatedDocs } = await analyzeAndIndexDoc(doc, filePath, content, projectPath);
-  const metadata = state.metadata[doc]!;
+  const { relatedDocs } = await analyzeAndIndexDoc(ctx, doc, filePath, content, projectPath);
+  const metadata = ctx.state.metadata[doc]!;
   await enhanceDoc(filePath, content, metadata, relatedDocs);
 }
 
@@ -64,6 +66,7 @@ async function enhanceDocFile(doc: string, projectPath: string) {
 // ---------------------------------------------------------------------------
 
 async function handleAnalyzeMode(projectPath: string, initDocs: boolean) {
+  const ctx = contextManager.getContext(projectPath);
   const docsPath = getDocsPath(projectPath);
   await fs.mkdir(docsPath, { recursive: true });
 
@@ -81,28 +84,27 @@ async function handleAnalyzeMode(projectPath: string, initDocs: boolean) {
   }
 
   // Clear search engine BEFORE loading state to avoid duplicate ID errors
-  // The search engine singleton persists across tool calls in the MCP server
-  searchEngine.removeAll();
+  ctx.searchEngine.removeAll();
 
-  await loadStateFromDisk(projectPath);
+  await ctx.loadStateFromDisk();
 
   const actualDocs = await getActualDocs(docsPath);
   for (const doc of actualDocs) {
-    await enhanceDocFile(doc, projectPath);
+    await enhanceDocFile(ctx, doc, projectPath);
   }
 
-  invalidateContextCache();
+  ctx.invalidateContextCache();
   const gitInfo = await getGitInfo(projectPath);
-  await saveStateToDisk(projectPath);
+  await ctx.saveStateToDisk();
 
   return {
     message: "Documentation structure initialized with metadata and context",
     docsPath,
     files: actualDocs,
-    metadata: state.metadata,
+    metadata: ctx.state.metadata,
     gitInfo,
-    contextCache: { timestamp: state.contextCache.timestamp, ttl: CACHE_TTL },
-    persistedAt: state.lastPersistedAt
+    contextCache: { timestamp: ctx.state.contextCache.timestamp, ttl: CACHE_TTL },
+    persistedAt: ctx.state.lastPersistedAt
   };
 }
 
@@ -111,6 +113,7 @@ async function handleAnalyzeMode(projectPath: string, initDocs: boolean) {
 // ---------------------------------------------------------------------------
 
 async function handleResetMode(projectPath: string) {
+  const ctx = contextManager.getContext(projectPath);
   const docsPath = getDocsPath(projectPath);
 
   try {
@@ -119,9 +122,8 @@ async function handleResetMode(projectPath: string) {
     throw new McpError(ErrorCode.InvalidParams, `Documentation directory not found at ${docsPath}`);
   }
 
-  await loadStateFromDisk(projectPath);
-  resetState();
-  searchEngine.removeAll();
+  await ctx.loadStateFromDisk();
+  ctx.resetState();
   clearSignatureCache();
 
   const files = await fs.readdir(docsPath);
@@ -132,21 +134,21 @@ async function handleResetMode(projectPath: string) {
   }
 
   for (const doc of markdownFiles) {
-    await enhanceDocFile(doc, projectPath);
+    await enhanceDocFile(ctx, doc, projectPath);
   }
 
-  invalidateContextCache();
+  ctx.invalidateContextCache();
   const gitInfo = await getGitInfo(projectPath);
-  await saveStateToDisk(projectPath);
+  await ctx.saveStateToDisk();
 
   return {
     message: "Existing documentation analyzed and enhanced",
     docsPath,
     files: markdownFiles,
-    metadata: state.metadata,
+    metadata: ctx.state.metadata,
     gitInfo,
-    contextCache: { timestamp: state.contextCache.timestamp, ttl: CACHE_TTL },
-    persistedAt: state.lastPersistedAt
+    contextCache: { timestamp: ctx.state.contextCache.timestamp, ttl: CACHE_TTL },
+    persistedAt: ctx.state.lastPersistedAt
   };
 }
 
@@ -155,15 +157,13 @@ async function handleResetMode(projectPath: string) {
 // ---------------------------------------------------------------------------
 
 export const analyzeProject = async (request: CallToolRequest) => {
-  const { projectPath, options = {} } = request.params.arguments as {
-    projectPath: string;
-    options?: {
-      mode?: "init" | "analyze" | "reset";
-      initDocs?: boolean;
-    };
-  };
-
-  const { mode = "analyze", initDocs = true } = options;
+  const parsed = AnalyzeProjectSchema.safeParse(request.params.arguments);
+  if (!parsed.success) {
+    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments: ${parsed.error.message}`);
+  }
+  const { projectPath, options } = parsed.data;
+  const mode = options?.mode ?? "analyze";
+  const initDocs = options?.initDocs ?? true;
 
   const validation = await validateProjectPath(projectPath);
   if (!validation.isValid) {

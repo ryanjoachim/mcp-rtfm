@@ -7,6 +7,7 @@ import { execFile as execFileCb } from "child_process";
 import { promisify } from "util";
 import type { ChangedFile, RefreshSuggestion, RefreshResult } from "./types.js";
 import { getActualDocs } from "./utils.js";
+import { logger } from "./logger.js";
 import { validateProjectPath } from "./validation.js";
 
 const execFileAsync = promisify(execFileCb);
@@ -21,6 +22,7 @@ export const isGitRepository = async (dir: string): Promise<boolean> => {
     await execFileAsync("git", ["rev-parse", "--is-inside-work-tree"], { cwd: dir, timeout: 5000 });
     return true;
   } catch {
+    // Not a git repo — expected for non-git projects
     return false;
   }
 };
@@ -47,7 +49,8 @@ export const generateProjectStructure = async (projectPath: string): Promise<str
     let entries: any[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      logger.warn("changes", "Failed to read directory during project structure walk", error);
       return;
     }
     const sorted = entries
@@ -185,8 +188,8 @@ export const detectGitChanges = async (projectPath: string): Promise<ChangedFile
         isDocumentation: path.startsWith(".handoff_docs/")
       });
     }
-  } catch {
-    // Git commands failed - return empty
+  } catch (error) {
+    logger.error("changes", "Git change detection failed unexpectedly", error);
   }
 
   return changes;
@@ -201,7 +204,8 @@ export const detectFileChanges = async (projectPath: string, since: string): Pro
     let entries: any[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      logger.warn("changes", "Failed to read directory during file change scan", error);
       return;
     }
 
@@ -222,8 +226,8 @@ export const detectFileChanges = async (projectPath: string, since: string): Pro
               isDocumentation: fullPath.includes(".handoff_docs/")
             });
           }
-        } catch {
-          // Skip files we can't stat
+        } catch (error) {
+          logger.warn("changes", "Failed to stat file during change scan", error);
         }
       }
     }
@@ -258,8 +262,8 @@ export const generateRefreshSuggestions = async (
           reason: `${changed.status} since last documentation refresh`
         });
       }
-    } catch {
-      // File not found
+    } catch (error) {
+      logger.warn("changes", "Failed to read doc file for lastUpdated suggestion", error);
     }
   }
 
@@ -278,8 +282,8 @@ export const generateRefreshSuggestions = async (
           reason: "package.json has been modified"
         });
       }
-    } catch {
-      // File doesn't exist
+    } catch (error) {
+      logger.warn("changes", "Failed to read techStack.md for package.json change suggestion", error);
     }
   }
 
@@ -302,8 +306,8 @@ export const generateRefreshSuggestions = async (
           });
         }
       }
-    } catch {
-      // File doesn't exist
+    } catch (error) {
+      logger.warn("changes", "Failed to read techStack.md for refresh suggestion", error);
     }
   }
 

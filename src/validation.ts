@@ -4,6 +4,7 @@
 
 import * as fs from "fs/promises";
 import path from "path";
+import { logger } from "./logger.js";
 
 // Path traversal pattern
 const PATH_TRAVERSAL = /\.\.\//;
@@ -31,7 +32,8 @@ export const validateProjectPath = async (projectPath: string): Promise<PathVali
   let absolutePath: string;
   try {
     absolutePath = path.resolve(projectPath);
-  } catch {
+  } catch (error) {
+    logger.warn("validation", "Failed to resolve project path", error);
     return { isValid: false, error: "Invalid project path" };
   }
 
@@ -41,7 +43,8 @@ export const validateProjectPath = async (projectPath: string): Promise<PathVali
     if (!stats.isDirectory()) {
       return { isValid: false, error: "Project path must be a directory" };
     }
-  } catch {
+  } catch (error) {
+    logger.warn("validation", "Project path does not exist", error);
     return { isValid: false, error: "Project path does not exist" };
   }
 

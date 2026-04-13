@@ -6,7 +6,8 @@ import * as fs from "fs/promises";
 import { unified } from "unified";
 import remarkParse from "remark-parse";
 import remarkStringify from "remark-stringify";
-import { state, searchEngine } from "./persistence.js";
+import type { ProjectContext } from "./project-context.js";
+import { logger } from "./logger.js";
 import { getActualDocs, slugToTitle, freshTimestamp } from "./utils.js";
 import { CACHE_TTL } from "./types.js";
 import type { DocMetadata, SearchResult } from "./types.js";
@@ -84,24 +85,24 @@ export const categorizeContent = (
 };
 
 // Helper functions for context and metadata management
-export const updateMetadata = async (filePath: string, metadata: Partial<DocMetadata>) => {
+export const updateMetadata = async (ctx: ProjectContext, filePath: string, metadata: Partial<DocMetadata>) => {
   const fileName = filePath.split(/[\\/]/).pop() as string;
-  state.metadata[fileName] = {
-    ...state.metadata[fileName],
+  ctx.state.metadata[fileName] = {
+    ...ctx.state.metadata[fileName],
     ...metadata,
     lastUpdated: freshTimestamp()
   } as DocMetadata;
 };
 
 // Helper function to update search index
-export const updateSearchIndex = (docFile: string, content: string, metadata: DocMetadata) => {
+export const updateSearchIndex = (ctx: ProjectContext, docFile: string, content: string, metadata: DocMetadata) => {
   const docId = docFile.replace(".md", "");
   try {
-    searchEngine.remove({ id: docId });
+    ctx.searchEngine.remove({ id: docId });
   } catch {
-    // Document didn't exist in index, which is fine
+    // Document didn't exist in index yet — expected on first add
   }
-  searchEngine.add({
+  ctx.searchEngine.add({
     id: docId,
     title: metadata.title,
     content,
@@ -111,21 +112,21 @@ export const updateSearchIndex = (docFile: string, content: string, metadata: Do
   });
 };
 
-export const findRelatedDocs = async (docFile: string, projectPath: string): Promise<string[]> => {
-  const metadata = state.metadata[docFile];
+export const findRelatedDocs = async (ctx: ProjectContext, docFile: string, projectPath: string): Promise<string[]> => {
+  const metadata = ctx.state.metadata[docFile];
   if (!metadata) return [];
 
   const related = new Set<string>();
 
   // Find docs with matching tags
-  Object.entries(state.metadata).forEach(([file, meta]) => {
+  Object.entries(ctx.state.metadata).forEach(([file, meta]) => {
     if (file !== docFile && meta.tags.some(tag => metadata.tags.includes(tag))) {
       related.add(file);
     }
   });
 
   // Find docs in same category
-  Object.entries(state.metadata).forEach(([file, meta]) => {
+  Object.entries(ctx.state.metadata).forEach(([file, meta]) => {
     if (file !== docFile && meta.category === metadata.category) {
       related.add(file);
     }
@@ -150,6 +151,7 @@ export const findRelatedDocs = async (docFile: string, projectPath: string): Pro
  * update metadata, and update search index. Returns extracted fields.
  */
 export const analyzeAndIndexDoc = async (
+  ctx: ProjectContext,
   doc: string,
   filePath: string,
   content: string,
@@ -157,7 +159,7 @@ export const analyzeAndIndexDoc = async (
 ): Promise<{ category: string; tags: string[]; relatedDocs: string[] }> => {
   const analysis = await analyzeContent(content);
   const { category, tags } = categorizeContent(doc, content, analysis);
-  const relatedDocs = await findRelatedDocs(doc, projectPath);
+  const relatedDocs = await findRelatedDocs(ctx, doc, projectPath);
   const metadata: DocMetadata = {
     title: analysis.title || slugToTitle(doc),
     category,
@@ -165,27 +167,27 @@ export const analyzeAndIndexDoc = async (
     lastUpdated: freshTimestamp(),
     relatedDocs
   };
-  await updateMetadata(filePath, metadata);
-  updateSearchIndex(doc, content, metadata);
+  await updateMetadata(ctx, filePath, metadata);
+  updateSearchIndex(ctx, doc, content, metadata);
   return { category, tags, relatedDocs };
 };
 
-export const searchDocContent = async (projectPath: string, query: string): Promise<SearchResult[]> => {
+export const searchDocContent = async (ctx: ProjectContext, projectPath: string, query: string): Promise<SearchResult[]> => {
   // Check cache first
   if (
-    state.contextCache.lastQuery === query &&
-    state.contextCache.results &&
-    state.contextCache.timestamp &&
-    Date.now() - state.contextCache.timestamp < CACHE_TTL
+    ctx.state.contextCache.lastQuery === query &&
+    ctx.state.contextCache.results &&
+    ctx.state.contextCache.timestamp &&
+    Date.now() - ctx.state.contextCache.timestamp < CACHE_TTL
   ) {
-    return state.contextCache.results;
+    return ctx.state.contextCache.results;
   }
 
   const results: SearchResult[] = [];
   const docsPath = `${projectPath}/.handoff_docs`;
 
   // If search index is empty, fall back to file scanning
-  if (searchEngine.documentCount === 0) {
+  if (ctx.searchEngine.documentCount === 0) {
     const actualDocs = await getActualDocs(docsPath);
     const searchRegex = new RegExp(query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'), "gi");
 
@@ -213,13 +215,13 @@ export const searchDocContent = async (projectPath: string, query: string): Prom
         if (matches.length > 0) {
           results.push({ file: doc, matches });
         }
-      } catch {
-        // Skip files we can't read
+      } catch (error) {
+        logger.warn("search", "Failed to read doc file during regex scan", error);
       }
     }
   } else {
     // Use MiniSearch for fuzzy/weighted search with relevance scoring
-    const searchResults = searchEngine.search(query, { boost: { title: 2 }, fuzzy: 0.2 });
+    const searchResults = ctx.searchEngine.search(query, { boost: { title: 2 }, fuzzy: 0.2 });
     const escapedQuery = query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const termRegex = new RegExp(escapedQuery, "gi");
 
@@ -249,14 +251,14 @@ export const searchDocContent = async (projectPath: string, query: string): Prom
         if (matches.length > 0) {
           results.push({ file: docFile, matches });
         }
-      } catch {
-        // Skip files we can't read
+      } catch (error) {
+        logger.warn("search", "Failed to read doc file during indexed search", error);
       }
     }
   }
 
   // Update cache
-  state.contextCache = {
+  ctx.state.contextCache = {
     lastQuery: query,
     results,
     timestamp: Date.now()

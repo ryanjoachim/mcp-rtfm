@@ -2,12 +2,13 @@
 
 // Main entry point - imports and starts the server
 import { main } from "./handlers/index.js";
+import { logger } from "./logger.js";
 
 // Graceful shutdown handler
 const shutdown = async (signal: string) => {
-  console.error(`\nReceived ${signal}, shutting down gracefully...`);
+  logger.info("server", `Received ${signal}, shutting down gracefully...`);
   // State is persisted after each tool invocation, so we just exit cleanly
-  console.error("Graceful shutdown complete.");
+  logger.info("server", "Graceful shutdown complete.");
   process.exit(0);
 };
 
@@ -19,7 +20,6 @@ process.on("SIGINT", () => shutdown("SIGINT"));
 try {
   main();
 } catch (error: unknown) {
-  const errorMessage = error instanceof Error ? error.message : String(error);
-  console.error("Server error:", errorMessage);
+  logger.error("server", "Server error", error);
   process.exit(1);
 }

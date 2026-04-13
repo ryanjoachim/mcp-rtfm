@@ -6,17 +6,20 @@ import * as fs from "fs/promises";
 import { CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
-import { saveStateToDisk } from "../persistence.js";
+import { contextManager } from "../project-context.js";
 import { analyzeContent, categorizeContent, updateMetadata, updateSearchIndex } from "../content.js";
 import { validateProjectPath } from "../validation.js";
-import { handleToolError, freshTimestamp, getDocsPath, invalidateContextCache } from "../utils.js";
+import { handleToolError, freshTimestamp, getDocsPath } from "../utils.js";
+import { logger } from "../logger.js";
+import { ReadDocSchema, UpdateDocSchema } from "../schemas.js";
 
 // Handler for read_doc
 export const readDoc = async (request: CallToolRequest) => {
-  const { projectPath, docFile } = request.params.arguments as {
-    projectPath: string;
-    docFile: string;
-  };
+  const parsed = ReadDocSchema.safeParse(request.params.arguments);
+  if (!parsed.success) {
+    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments: ${parsed.error.message}`);
+  }
+  const { projectPath, docFile } = parsed.data;
 
   const validation = await validateProjectPath(projectPath);
   if (!validation.isValid) {
@@ -41,14 +44,11 @@ export const readDoc = async (request: CallToolRequest) => {
 
 // Handler for update_doc
 export const updateDoc = async (request: CallToolRequest) => {
-  const { projectPath, docFile, searchContent, replaceContent, content } =
-    request.params.arguments as {
-      projectPath: string;
-      docFile: string;
-      searchContent?: string;
-      replaceContent?: string;
-      content?: string;
-    };
+  const parsed = UpdateDocSchema.safeParse(request.params.arguments);
+  if (!parsed.success) {
+    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments: ${parsed.error.message}`);
+  }
+  const { projectPath, docFile, searchContent, replaceContent, content } = parsed.data;
 
   // Validate project path before use
   const validation = await validateProjectPath(projectPath);
@@ -59,13 +59,7 @@ export const updateDoc = async (request: CallToolRequest) => {
     );
   }
 
-  // Require either full content or search+replace
-  if (!content && (!searchContent || !replaceContent)) {
-    throw new McpError(
-      ErrorCode.InvalidParams,
-      "Must provide either 'content' for full replacement, or both 'searchContent' and 'replaceContent' for diff-based update"
-    );
-  }
+  const ctx = contextManager.getContext(projectPath);
 
   try {
     const filePath = `${getDocsPath(projectPath)}/${docFile}`;
@@ -84,7 +78,7 @@ export const updateDoc = async (request: CallToolRequest) => {
           `Search content not found in ${docFile}`
         );
       }
-      fileContent = fileContent.replaceAll(searchContent, replaceContent);
+      fileContent = fileContent.replace(searchContent, replaceContent);
     }
 
     await fs.writeFile(filePath, fileContent, "utf8");
@@ -93,23 +87,23 @@ export const updateDoc = async (request: CallToolRequest) => {
     try {
       const analysis = await analyzeContent(fileContent);
       const { category, tags } = categorizeContent(docFile, fileContent, analysis);
-      await updateMetadata(filePath, { title: analysis.title || docFile, category, tags });
-      updateSearchIndex(docFile, fileContent, {
+      await updateMetadata(ctx, filePath, { title: analysis.title || docFile, category, tags });
+      updateSearchIndex(ctx, docFile, fileContent, {
         title: analysis.title || docFile,
         category,
         tags,
         lastUpdated: freshTimestamp(),
         relatedDocs: []
       });
-    } catch {
-      // Non-fatal: skip search index update if content analysis fails
+    } catch (error) {
+      logger.error("doc-handlers", "Failed to update search index after doc update", error);
     }
 
     // Invalidate context cache
-    invalidateContextCache();
+    ctx.invalidateContextCache();
 
     // Persist state
-    await saveStateToDisk(projectPath);
+    await ctx.saveStateToDisk();
 
     return {
       content: [

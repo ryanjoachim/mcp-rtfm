@@ -6,10 +6,10 @@ import * as fs from "fs/promises";
 import { CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
-import { state, saveStateToDisk } from "../persistence.js";
+import { contextManager } from "../project-context.js";
 import {
   getActualDocs, handleToolError, slugToTitle, freshTimestamp,
-  getDocsPath, invalidateContextCache, enhanceDoc
+  getDocsPath, enhanceDoc
 } from "../utils.js";
 import { analyzeAndIndexDoc } from "../content.js";
 import { detectProjectSignature, refreshDocContent } from "../project.js";
@@ -18,6 +18,8 @@ import {
   generateRefreshSuggestions, calculateSummary, applySuggestion
 } from "../changes.js";
 import { validateProjectPath } from "../validation.js";
+import { logger } from "../logger.js";
+import { RefreshDocumentationSchema } from "../schemas.js";
 import type { DocMetadata } from "../types.js";
 
 // ---------------------------------------------------------------------------
@@ -25,29 +27,26 @@ import type { DocMetadata } from "../types.js";
 // ---------------------------------------------------------------------------
 
 export const refreshDocumentation = async (request: CallToolRequest) => {
-  const { projectPath, options = {} } = request.params.arguments as {
-    projectPath: string;
-    options?: {
-      mode?: "sync" | "analyze";
-      dryRun?: boolean;
-      includeStats?: boolean;
-      targetDocs?: string[];
-      docFile?: string;
-      metadata?: Partial<Pick<DocMetadata, "title" | "category" | "tags">>;
-    };
-  };
-
-  const { mode = "sync", dryRun = true, includeStats = true } = options;
+  const parsed = RefreshDocumentationSchema.safeParse(request.params.arguments);
+  if (!parsed.success) {
+    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments: ${parsed.error.message}`);
+  }
+  const { projectPath, options } = parsed.data;
+  const mode = options?.mode ?? "sync";
+  const dryRun = options?.dryRun ?? true;
+  const includeStats = options?.includeStats ?? true;
 
   const validation = await validateProjectPath(projectPath);
   if (!validation.isValid) {
     throw new McpError(ErrorCode.InvalidParams, `Invalid project path: ${validation.error}`);
   }
 
+  const ctx = contextManager.getContext(projectPath);
+
   try {
     return mode === "analyze"
-      ? handleRefreshAnalyzeMode(request)
-      : handleSyncMode(request);
+      ? handleRefreshAnalyzeMode(ctx, projectPath, options ?? {})
+      : handleSyncMode(ctx, projectPath, options ?? {});
   } catch (error: unknown) {
     if (error instanceof McpError) throw error;
     return handleToolError(error, "refreshing documentation");
@@ -58,15 +57,7 @@ export const refreshDocumentation = async (request: CallToolRequest) => {
 // Analyze mode — re-analyzes content, regenerates metadata, refreshes body
 // ---------------------------------------------------------------------------
 
-async function handleRefreshAnalyzeMode(request: CallToolRequest) {
-  const { projectPath, options = {} } = request.params.arguments as {
-    projectPath: string;
-    options?: {
-      docFile?: string;
-      metadata?: Partial<Pick<DocMetadata, "title" | "category" | "tags">>;
-    };
-  };
-
+async function handleRefreshAnalyzeMode(ctx: ReturnType<typeof contextManager.getContext>, projectPath: string, options: { docFile?: string; metadata?: Partial<Pick<DocMetadata, "title" | "category" | "tags">> }) {
   const { docFile, metadata } = options;
 
   const signature = await detectProjectSignature(projectPath);
@@ -80,15 +71,16 @@ async function handleRefreshAnalyzeMode(request: CallToolRequest) {
     let content: string;
     try {
       content = await fs.readFile(filePath, "utf8");
-    } catch {
+    } catch (error) {
+      logger.warn("refresh", "Failed to read doc file during refresh", error);
       results.push({ file: doc, updated: false, message: "File not found" });
       continue;
     }
 
     // Re-analyze and build metadata
-    const { category, tags, relatedDocs } = await analyzeAndIndexDoc(doc, filePath, content, projectPath);
+    const { category, tags, relatedDocs } = await analyzeAndIndexDoc(ctx, doc, filePath, content, projectPath);
     const fullMetadata: DocMetadata = {
-      title: metadata?.title || state.metadata[doc]?.title || slugToTitle(doc),
+      title: metadata?.title || ctx.state.metadata[doc]?.title || slugToTitle(doc),
       category: metadata?.category || category,
       tags: metadata?.tags || tags,
       lastUpdated: freshTimestamp(),
@@ -108,8 +100,8 @@ async function handleRefreshAnalyzeMode(request: CallToolRequest) {
     });
   }
 
-  invalidateContextCache();
-  await saveStateToDisk(projectPath);
+  ctx.invalidateContextCache();
+  await ctx.saveStateToDisk();
 
   return {
     content: [{
@@ -121,7 +113,7 @@ async function handleRefreshAnalyzeMode(request: CallToolRequest) {
           frameworks: signature.frameworks,
           patterns: signature.patterns
         },
-        persistedAt: state.lastPersistedAt
+        persistedAt: ctx.state.lastPersistedAt
       }, null, 2)
     }]
   };
@@ -131,16 +123,7 @@ async function handleRefreshAnalyzeMode(request: CallToolRequest) {
 // Sync mode — detects codebase changes, generates suggestions, applies them
 // ---------------------------------------------------------------------------
 
-async function handleSyncMode(request: CallToolRequest) {
-  const { projectPath, options = {} } = request.params.arguments as {
-    projectPath: string;
-    options?: {
-      dryRun?: boolean;
-      includeStats?: boolean;
-      targetDocs?: string[];
-    };
-  };
-
+async function handleSyncMode(ctx: ReturnType<typeof contextManager.getContext>, projectPath: string, options: { dryRun?: boolean; includeStats?: boolean; targetDocs?: string[] }) {
   const { dryRun = true, includeStats = true, targetDocs } = options;
   const docsPath = getDocsPath(projectPath);
 
@@ -153,16 +136,16 @@ async function handleSyncMode(request: CallToolRequest) {
   const isGit = await isGitRepository(projectPath);
   const changes = isGit
     ? await detectGitChanges(projectPath)
-    : await detectFileChanges(projectPath, state.lastPersistedAt || new Date(0).toISOString());
+    : await detectFileChanges(projectPath, ctx.state.lastPersistedAt || new Date(0).toISOString());
 
   const documentation = changes.filter(c => c.isDocumentation);
   const source = changes.filter(c => !c.isDocumentation);
-  const suggestions = await generateRefreshSuggestions(projectPath, changes, state.lastPersistedAt || null);
+  const suggestions = await generateRefreshSuggestions(projectPath, changes, ctx.state.lastPersistedAt || null);
 
   const result = {
     dryRun,
     timestamp: freshTimestamp(),
-    sinceLastPersisted: state.lastPersistedAt || null,
+    sinceLastPersisted: ctx.state.lastPersistedAt || null,
     changes: { detected: includeStats ? changes : [], documentation, source },
     suggestions,
     summary: calculateSummary(suggestions)
@@ -177,14 +160,14 @@ async function handleSyncMode(request: CallToolRequest) {
         const applied = await applySuggestion(docPath, suggestion);
         if (applied) {
           const content = await fs.readFile(docPath, "utf8");
-          await analyzeAndIndexDoc(suggestion.docFile, docPath, content, projectPath);
+          await analyzeAndIndexDoc(ctx, suggestion.docFile, docPath, content, projectPath);
         }
-      } catch {
-        // Skip files we can't update
+      } catch (error) {
+        logger.warn("refresh", "Failed to apply suggestion to doc file", error);
       }
     }
-    state.lastPersistedAt = freshTimestamp();
-    await saveStateToDisk(projectPath);
+    ctx.state.lastPersistedAt = freshTimestamp();
+    await ctx.saveStateToDisk();
   }
 
   return { content: [{ type: "text", text: JSON.stringify(result, null, 2) }] };

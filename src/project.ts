@@ -4,6 +4,7 @@
 
 import * as fs from "fs/promises";
 import { TEMPLATE_CONTENT, getActualDocs, sourceExtensions } from "./utils.js";
+import { logger } from "./logger.js";
 import type { ProjectSignature, CodeSymbol, ContentGap } from "./types.js";
 
 // Cache signature detection results per project path
@@ -61,7 +62,7 @@ export const detectProjectSignature = async (projectPath: string): Promise<Proje
     if (deps.unified || deps.remark) signature.patterns.push("Unified/Remark");
     if (deps.yargs || deps.commander || deps.arg || deps.meow) signature.patterns.push("CLI");
   } catch {
-    // No package.json
+    // No package.json — not a Node project
   }
 
   signatureCache.set(projectPath, signature);
@@ -80,7 +81,8 @@ export const extractSymbols = async (projectPath: string, targetFiles?: string[]
     let entries: any[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
-    } catch {
+    } catch (error) {
+      logger.warn("project", "Failed to read directory during symbol scan", error);
       return;
     }
 
@@ -140,8 +142,8 @@ export const extractSymbols = async (projectPath: string, targetFiles?: string[]
               }
             }
           }
-        } catch {
-          // Skip files we can't read
+        } catch (error) {
+          logger.warn("project", "Failed to read source file during symbol extraction", error);
         }
       }
     }
@@ -152,23 +154,13 @@ export const extractSymbols = async (projectPath: string, targetFiles?: string[]
 };
 
 // Check if a symbol is mentioned in documentation
-const isSymbolDocumented = async (symbol: CodeSymbol, projectPath: string): Promise<boolean> => {
-  const docsPath = `${projectPath}/.handoff_docs`;
-  const actualDocs = await getActualDocs(docsPath);
-
-  // Escape special regex characters in the symbol name
+const isSymbolDocumented = (symbol: CodeSymbol, docContents: Map<string, string>): boolean => {
   const escaped = symbol.name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
   const wordBoundaryRegex = new RegExp(`\\b${escaped}\\b`);
 
-  for (const doc of actualDocs) {
-    try {
-      const content = await fs.readFile(`${docsPath}/${doc}`, "utf8");
-      // Check if symbol name appears as a word boundary match or in backticks
-      if (wordBoundaryRegex.test(content) || content.includes('`' + symbol.name + '`')) {
-        return true;
-      }
-    } catch {
-      // Skip files we can't read
+  for (const content of docContents.values()) {
+    if (wordBoundaryRegex.test(content) || content.includes('`' + symbol.name + '`')) {
+      return true;
     }
   }
   return false;
@@ -193,8 +185,20 @@ export const analyzeContentGaps = async (projectPath: string, targetFiles?: stri
   const symbols = await extractSymbols(projectPath, targetFiles);
   const gaps: ContentGap[] = [];
 
+  // Pre-load all doc content once to avoid O(n*m) file reads
+  const docsPath = `${projectPath}/.handoff_docs`;
+  const actualDocs = await getActualDocs(docsPath);
+  const docContents = new Map<string, string>();
+  for (const doc of actualDocs) {
+    try {
+      docContents.set(doc, await fs.readFile(`${docsPath}/${doc}`, "utf8"));
+    } catch (error) {
+      logger.warn("project", "Failed to read doc file during content gap analysis", error);
+    }
+  }
+
   for (const symbol of symbols) {
-    const isDocumented = await isSymbolDocumented(symbol, projectPath);
+    const isDocumented = isSymbolDocumented(symbol, docContents);
     if (!isDocumented) {
       gaps.push({
         symbol,

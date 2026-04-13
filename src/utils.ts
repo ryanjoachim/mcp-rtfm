@@ -5,7 +5,8 @@
 import * as fs from "fs/promises";
 import { execFile as execFileCb } from "child_process";
 import { promisify } from "util";
-import { state } from "./persistence.js";
+import matter from "gray-matter";
+import { logger } from "./logger.js";
 import type { DocMetadata } from "./types.js";
 
 const execFileAsync = promisify(execFileCb);
@@ -45,7 +46,8 @@ export const getActualDocs = async (docsPath: string): Promise<string[]> => {
   try {
     const files = await fs.readdir(docsPath);
     return files.filter(f => f.endsWith(".md")).sort();
-  } catch {
+  } catch (error) {
+    logger.warn("utils", "Docs directory not found or empty", error);
     return [];
   }
 };
@@ -55,9 +57,6 @@ export const getDocsPath = (projectPath: string) => `${projectPath}/.handoff_doc
 
 /** Current ISO timestamp — used for lastUpdated fields. */
 export const freshTimestamp = () => new Date().toISOString();
-
-/** Clear the context cache in state. */
-export const invalidateContextCache = () => { state.contextCache = {}; }
 
 /**
  * Convert a doc filename (e.g. "myDoc.md" or "my_doc.md") to a title string.
@@ -82,9 +81,8 @@ export const handleToolError = (error: unknown, context: string) => {
 };
 
 /**
- * Add or update YAML front matter on a doc. Handles both cases:
- * - Doc has no front matter: prepends one
- * - Doc already has front matter: replaces it
+ * Add or update YAML front matter on a doc. Uses gray-matter for robust parsing
+ * that correctly handles `---` in body content and preserves user-added fields.
  * Returns true if the file was modified.
  */
 export const enhanceDoc = async (
@@ -93,28 +91,19 @@ export const enhanceDoc = async (
   metadata: DocMetadata,
   relatedDocs: string[]
 ): Promise<boolean> => {
-  const frontMatter = `title: ${metadata.title}
-category: ${metadata.category}
-tags: ${metadata.tags.join(", ")}
-lastUpdated: ${metadata.lastUpdated}
-relatedDocs: ${relatedDocs.join(", ")}`;
+  const parsed = matter(content);
 
-  let newContent: string;
-  if (content.startsWith("---")) {
-    const end = content.indexOf("---", 3);
-    if (end === -1) return false;
-    const bodyContent = content.slice(end + 3);
-    const separator = bodyContent.startsWith("\n") ? "" : "\n\n";
-    newContent = `---
-${frontMatter}
----${separator}${bodyContent}`;
-  } else {
-    newContent = `---
-${frontMatter}
----
+  // Merge: preserve any existing user-added fields, overwrite our standard fields
+  const mergedData = {
+    ...parsed.data,
+    title: metadata.title,
+    category: metadata.category,
+    tags: metadata.tags,
+    lastUpdated: metadata.lastUpdated,
+    relatedDocs,
+  };
 
-${content}`;
-  }
+  const newContent = matter.stringify(parsed.content, mergedData);
 
   if (newContent !== content) {
     await fs.writeFile(filePath, newContent);
@@ -143,20 +132,8 @@ export const getGitInfo = async (projectPath: string): Promise<{
       branch: branch.stdout.trim(),
       lastCommit: lastCommit.stdout.trim()
     };
-  } catch {
+  } catch (error) {
+    logger.warn("utils", "Git info unavailable", error);
     return {};
   }
-};
-
-/**
- * Reset the in-memory documentation state (metadata, caches, etc.)
- * while preserving the lastPersistedAt timestamp.
- */
-export const resetState = () => {
-  const preservedLastPersistedAt = state.lastPersistedAt;
-  state.metadata = {};
-  state.contextCache = {};
-  state.validationResults = {};
-  state.symbolMap = {};
-  state.lastPersistedAt = preservedLastPersistedAt;
 };

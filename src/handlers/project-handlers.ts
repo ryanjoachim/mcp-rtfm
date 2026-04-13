@@ -6,14 +6,20 @@ import * as fs from "fs/promises";
 import { CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
-import { state, saveStateToDisk } from "../persistence.js";
+import { contextManager } from "../project-context.js";
 import { getActualDocs, getGitInfo, handleToolError } from "../utils.js";
 import { analyzeContentGaps as findContentGaps } from "../project.js";
 import { validateDocumentation as validateDocs, validateProjectPath } from "../validation.js";
+import { logger } from "../logger.js";
+import { GetProjectInfoSchema, AnalyzeContentGapsSchema, ValidateDocumentationSchema } from "../schemas.js";
 
 // Handler for get_project_info
 export const getProjectInfo = async (request: CallToolRequest) => {
-  const { projectPath } = request.params.arguments as { projectPath: string };
+  const parsed = GetProjectInfoSchema.safeParse(request.params.arguments);
+  if (!parsed.success) {
+    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments: ${parsed.error.message}`);
+  }
+  const { projectPath } = parsed.data;
 
   // Validate project path before use
   const validation = await validateProjectPath(projectPath);
@@ -33,7 +39,7 @@ export const getProjectInfo = async (request: CallToolRequest) => {
       const packageJson = await fs.readFile(`${projectPath}/package.json`, "utf8");
       packageInfo = JSON.parse(packageJson);
     } catch {
-      // No package.json or invalid JSON
+      // No package.json or invalid JSON — not a Node project
     }
 
     const docsPath = `${projectPath}/.handoff_docs`;
@@ -60,10 +66,11 @@ export const getProjectInfo = async (request: CallToolRequest) => {
 
 // Handler for analyze_content_gaps
 export const analyzeContentGapsHandler = async (request: CallToolRequest) => {
-  const { projectPath, targetFiles } = request.params.arguments as {
-    projectPath: string;
-    targetFiles?: string[];
-  };
+  const parsed = AnalyzeContentGapsSchema.safeParse(request.params.arguments);
+  if (!parsed.success) {
+    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments: ${parsed.error.message}`);
+  }
+  const { projectPath, targetFiles } = parsed.data;
 
   // Validate project path before use
   const validation = await validateProjectPath(projectPath);
@@ -74,17 +81,12 @@ export const analyzeContentGapsHandler = async (request: CallToolRequest) => {
     );
   }
 
+  const ctx = contextManager.getContext(projectPath);
+
   try {
     const gaps = await findContentGaps(projectPath, targetFiles);
 
-    // Store in state for persistence
-    state.symbolMap = gaps.reduce((acc, gap: any) => {
-      if (!acc[gap.symbol.filePath]) acc[gap.symbol.filePath] = [];
-      acc[gap.symbol.filePath].push(gap.symbol.name);
-      return acc;
-    }, {} as Record<string, string[]>);
-
-    await saveStateToDisk(projectPath);
+    await ctx.saveStateToDisk();
 
     return {
       content: [{
@@ -110,7 +112,7 @@ export const analyzeContentGapsHandler = async (request: CallToolRequest) => {
               return acc;
             }, {} as Record<string, number>)
           },
-          persistedAt: state.lastPersistedAt
+          persistedAt: ctx.state.lastPersistedAt
         }, null, 2)
       }]
     };
@@ -122,9 +124,11 @@ export const analyzeContentGapsHandler = async (request: CallToolRequest) => {
 
 // Handler for validate_documentation
 export const validateDocumentationHandler = async (request: CallToolRequest) => {
-  const { projectPath } = request.params.arguments as {
-    projectPath: string;
-  };
+  const parsed = ValidateDocumentationSchema.safeParse(request.params.arguments);
+  if (!parsed.success) {
+    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments: ${parsed.error.message}`);
+  }
+  const { projectPath } = parsed.data;
 
   // Validate project path before use
   const validation = await validateProjectPath(projectPath);
@@ -135,16 +139,12 @@ export const validateDocumentationHandler = async (request: CallToolRequest) => 
     );
   }
 
+  const ctx = contextManager.getContext(projectPath);
+
   try {
     const result = await validateDocs(projectPath);
 
-    // Store validation results in state
-    state.validationResults = {
-      lastRun: new Date().toISOString(),
-      ...result.summary
-    };
-
-    await saveStateToDisk(projectPath);
+    await ctx.saveStateToDisk();
 
     return {
       content: [{
@@ -152,7 +152,7 @@ export const validateDocumentationHandler = async (request: CallToolRequest) => 
         text: JSON.stringify({
           message: "Documentation validation complete",
           ...result,
-          persistedAt: state.lastPersistedAt
+          persistedAt: ctx.state.lastPersistedAt
         }, null, 2)
       }]
     };

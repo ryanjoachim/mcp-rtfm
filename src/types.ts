@@ -10,8 +10,6 @@ export interface DocState {
     timestamp?: number;
   };
   lastPersistedAt?: string;
-  validationResults: Record<string, any>;
-  symbolMap: Record<string, string[]>;
 }
 
 export interface DocMetadata {

@@ -125,7 +125,7 @@ await use_mcp_tool({
   }
 });
 
-// Update with a targeted diff (replaces all occurrences of searchContent)
+// Update with a targeted diff (replaces the first occurrence of searchContent)
 await use_mcp_tool({
   server: "mcp-rtfm",
   tool: "update_doc",
@@ -370,6 +370,7 @@ The server uses MiniSearch for powerful search capabilities:
 - Efficient caching with TTL management (5-minute cache)
 - Real-time search index updates on every doc change
 - Falls back to regex scanning if the index is empty (before `analyze_project` is run)
+- Search state is scoped per project — multiple projects don't interfere with each other
 
 ### Metadata Generation
 
@@ -381,9 +382,10 @@ The server uses MiniSearch for powerful search capabilities:
 
 ### State Persistence
 
+- State is scoped per project path — each project maintains its own metadata and search index independently
 - State stored in `.handoff_docs/.rtfm-state/`
 - Persists: metadata and search index
-- Survives server restarts - restores search index and all state on startup
+- Survives server restarts — restores search index and all state on startup
 
 ### Git Integration
 
@@ -397,7 +399,8 @@ When running inside a git repository:
 
 Automatically finds undocumented code:
 - Extracts symbols: functions, constants, classes, interfaces, types
-- Checks if each symbol is mentioned in any documentation (with word-boundary matching)
+- Checks if each symbol is mentioned in any documentation (with word-boundary matching and backtick awareness)
+- Pre-loads all documentation content once for efficient analysis
 - Suggests which doc file should contain the documentation
 - Reports gaps by type and suggested document
 

@@ -5,17 +5,19 @@
 import { CallToolRequest } from "@modelcontextprotocol/sdk/types.js";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
-import { state, searchEngine } from "../persistence.js";
+import { contextManager } from "../project-context.js";
 import { searchDocContent, findRelatedDocs } from "../content.js";
 import { validateProjectPath } from "../validation.js";
 import { handleToolError } from "../utils.js";
+import { SearchDocsSchema, GetRelatedDocsSchema } from "../schemas.js";
 
 // Handler for search_docs
 export const searchDocs = async (request: CallToolRequest) => {
-  const { projectPath, query } = request.params.arguments as {
-    projectPath: string;
-    query: string;
-  };
+  const parsed = SearchDocsSchema.safeParse(request.params.arguments);
+  if (!parsed.success) {
+    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments: ${parsed.error.message}`);
+  }
+  const { projectPath, query } = parsed.data;
 
   // Validate project path before use
   const validation = await validateProjectPath(projectPath);
@@ -26,8 +28,10 @@ export const searchDocs = async (request: CallToolRequest) => {
     );
   }
 
+  const ctx = contextManager.getContext(projectPath);
+
   try {
-    const results = await searchDocContent(projectPath, query);
+    const results = await searchDocContent(ctx, projectPath, query);
 
     return {
       content: [
@@ -37,7 +41,7 @@ export const searchDocs = async (request: CallToolRequest) => {
             query,
             totalResults: results.length,
             results,
-            searchMethod: searchEngine.documentCount > 0 ? "fuzzy-indexed" : "regex-scan"
+            searchMethod: ctx.searchEngine.documentCount > 0 ? "fuzzy-indexed" : "regex-scan"
           }, null, 2)
         }
       ]
@@ -50,10 +54,11 @@ export const searchDocs = async (request: CallToolRequest) => {
 
 // Handler for get_related_docs
 export const getRelatedDocs = async (request: CallToolRequest) => {
-  const { projectPath, docFile } = request.params.arguments as {
-    projectPath: string;
-    docFile: string;
-  };
+  const parsed = GetRelatedDocsSchema.safeParse(request.params.arguments);
+  if (!parsed.success) {
+    throw new McpError(ErrorCode.InvalidParams, `Invalid arguments: ${parsed.error.message}`);
+  }
+  const { projectPath, docFile } = parsed.data;
 
   // Validate project path before use
   const validation = await validateProjectPath(projectPath);
@@ -64,9 +69,11 @@ export const getRelatedDocs = async (request: CallToolRequest) => {
     );
   }
 
+  const ctx = contextManager.getContext(projectPath);
+
   try {
-    const related = await findRelatedDocs(docFile, projectPath);
-    const metadata = state.metadata[docFile];
+    const related = await findRelatedDocs(ctx, docFile, projectPath);
+    const metadata = ctx.state.metadata[docFile];
 
     return {
       content: [
