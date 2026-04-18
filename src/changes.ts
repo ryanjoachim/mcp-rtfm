@@ -41,11 +41,16 @@ export const parseStatus = (status: string): ChangedFile["status"] => {
 };
 
 // Generate ASCII project structure tree
+const MAX_TREE_DEPTH = 5;
+const MAX_TREE_FILES = 200;
+
 export const generateProjectStructure = async (projectPath: string): Promise<string> => {
   const items: string[] = [];
   const projectName = projectPath.split(/[\\/]/).pop() as string;
 
-  const getDir = async (dir: string, prefix = "") => {
+  const getDir = async (dir: string, prefix = "", depth = 0) => {
+    if (depth >= MAX_TREE_DEPTH || items.length >= MAX_TREE_FILES) return;
+
     let entries: any[];
     try {
       entries = await fs.readdir(dir, { withFileTypes: true });
@@ -58,6 +63,8 @@ export const generateProjectStructure = async (projectPath: string): Promise<str
       .sort((a, b) => a.name.localeCompare(b.name));
 
     for (let i = 0; i < sorted.length; i++) {
+      if (items.length >= MAX_TREE_FILES) break;
+
       const entry = sorted[i];
       const isLast = i === sorted.length - 1;
       const current = prefix + (isLast ? "└── " : "├── ");
@@ -65,7 +72,7 @@ export const generateProjectStructure = async (projectPath: string): Promise<str
 
       if (entry.isDirectory()) {
         items.push(`${current}${entry.name}/`);
-        await getDir(`${dir}/${entry.name}`, nextPrefix);
+        await getDir(`${dir}/${entry.name}`, nextPrefix, depth + 1);
       } else {
         items.push(`${current}${entry.name}`);
       }

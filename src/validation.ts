@@ -129,13 +129,14 @@ export const validateDocumentation = async (
     const linkMatches = content.match(/\[\[([^\]]+)\]\]/g) || [];
     for (const match of linkMatches) {
       checkedLinks++;
-      const linkedDoc = match.slice(2, -2).trim() + ".md";
+      const linkTarget = match.slice(2, -2).trim();
+      const linkedDoc = linkTarget.endsWith(".md") ? linkTarget : linkTarget + ".md";
       if (!actualDocs.includes(linkedDoc)) {
         issues.push({
           file: doc,
           type: "broken_link",
           location: `Line ${content.substring(0, content.indexOf(match)).split("\n").length}`,
-          message: `Broken link to [[${linkedDoc.replace(".md", "")}]] - file not found`,
+          message: `Broken link to [[${linkTarget}]] - file not found`,
           severity: "error"
         });
       }

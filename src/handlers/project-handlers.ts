@@ -29,20 +29,21 @@ export const getProjectInfo = async (request: CallToolRequest) => {
       `Invalid project path: ${validation.error}`
     );
   }
+  const resolvedPath = validation.resolvedPath!;
 
   try {
-    const gitInfo = await getGitInfo(projectPath);
+    const gitInfo = await getGitInfo(resolvedPath);
 
     // Get package.json if it exists
     let packageInfo = {};
     try {
-      const packageJson = await fs.readFile(`${projectPath}/package.json`, "utf8");
+      const packageJson = await fs.readFile(`${resolvedPath}/package.json`, "utf8");
       packageInfo = JSON.parse(packageJson);
     } catch {
       // No package.json or invalid JSON — not a Node project
     }
 
-    const docsPath = `${projectPath}/.handoff_docs`;
+    const docsPath = `${resolvedPath}/.handoff_docs`;
     const actualDocs = await getActualDocs(docsPath);
 
     return {
@@ -80,11 +81,12 @@ export const analyzeContentGapsHandler = async (request: CallToolRequest) => {
       `Invalid project path: ${validation.error}`
     );
   }
+  const resolvedPath = validation.resolvedPath!;
 
-  const ctx = contextManager.getContext(projectPath);
+  const ctx = contextManager.getContext(resolvedPath);
 
   try {
-    const gaps = await findContentGaps(projectPath, targetFiles);
+    const gaps = await findContentGaps(resolvedPath, targetFiles);
 
     await ctx.saveStateToDisk();
 
@@ -138,11 +140,12 @@ export const validateDocumentationHandler = async (request: CallToolRequest) => 
       `Invalid project path: ${validation.error}`
     );
   }
+  const resolvedPath = validation.resolvedPath!;
 
-  const ctx = contextManager.getContext(projectPath);
+  const ctx = contextManager.getContext(resolvedPath);
 
   try {
-    const result = await validateDocs(projectPath);
+    const result = await validateDocs(resolvedPath);
 
     await ctx.saveStateToDisk();
 

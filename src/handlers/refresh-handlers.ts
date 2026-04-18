@@ -40,13 +40,14 @@ export const refreshDocumentation = async (request: CallToolRequest) => {
   if (!validation.isValid) {
     throw new McpError(ErrorCode.InvalidParams, `Invalid project path: ${validation.error}`);
   }
+  const resolvedPath = validation.resolvedPath!;
 
-  const ctx = contextManager.getContext(projectPath);
+  const ctx = contextManager.getContext(resolvedPath);
 
   try {
     return mode === "analyze"
-      ? handleRefreshAnalyzeMode(ctx, projectPath, options ?? {})
-      : handleSyncMode(ctx, projectPath, options ?? {});
+      ? handleRefreshAnalyzeMode(ctx, resolvedPath, options ?? {})
+      : handleSyncMode(ctx, resolvedPath, options ?? {});
   } catch (error: unknown) {
     if (error instanceof McpError) throw error;
     return handleToolError(error, "refreshing documentation");

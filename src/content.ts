@@ -195,22 +195,23 @@ export const searchDocContent = async (ctx: ProjectContext, projectPath: string,
       try {
         const content = await fs.readFile(`${docsPath}/${doc}`, "utf8");
         const lines = content.split("\n");
-        const matches = lines
-          .map((line, index) => {
-            const match = searchRegex.exec(line);
-            if (match) {
-              return {
-                line,
-                lineNumber: index + 1,
-                highlight: {
-                  start: match.index,
-                  end: match.index + match[0].length
-                }
-              };
-            }
-            return null;
-          })
-          .filter((match): match is NonNullable<typeof match> => match !== null);
+        const matches: SearchResult["matches"] = [];
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          let match;
+          searchRegex.lastIndex = 0;
+          while ((match = searchRegex.exec(line)) !== null) {
+            matches.push({
+              line,
+              lineNumber: i + 1,
+              highlight: {
+                start: match.index,
+                end: match.index + match[0].length
+              }
+            });
+          }
+        }
 
         if (matches.length > 0) {
           results.push({ file: doc, matches });
@@ -230,23 +231,23 @@ export const searchDocContent = async (ctx: ProjectContext, projectPath: string,
       try {
         const content = await fs.readFile(`${docsPath}/${docFile}`, "utf8");
         const lines = content.split("\n");
-        const matches = lines
-          .map((line, index) => {
-            termRegex.lastIndex = 0;
-            const match = termRegex.exec(line);
-            if (match) {
-              return {
-                line,
-                lineNumber: index + 1,
-                highlight: {
-                  start: match.index,
-                  end: match.index + match[0].length
-                }
-              };
-            }
-            return null;
-          })
-          .filter((match): match is NonNullable<typeof match> => match !== null);
+        const matches: SearchResult["matches"] = [];
+
+        for (let i = 0; i < lines.length; i++) {
+          const line = lines[i];
+          let match;
+          termRegex.lastIndex = 0;
+          while ((match = termRegex.exec(line)) !== null) {
+            matches.push({
+              line,
+              lineNumber: i + 1,
+              highlight: {
+                start: match.index,
+                end: match.index + match[0].length
+              }
+            });
+          }
+        }
 
         if (matches.length > 0) {
           results.push({ file: docFile, matches });

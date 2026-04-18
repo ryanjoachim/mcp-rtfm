@@ -74,6 +74,7 @@ export const slugToTitle = (docName: string): string =>
  */
 export const handleToolError = (error: unknown, context: string) => {
   const errorMessage = error instanceof Error ? error.message : String(error);
+  logger.error("handler", `Error ${context}: ${errorMessage}`, error);
   return {
     content: [{ type: "text" as const, text: JSON.stringify({ error: true, message: `Error ${context}: ${errorMessage}` }, null, 2) }],
     isError: true

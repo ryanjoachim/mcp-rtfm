@@ -27,11 +27,12 @@ export const searchDocs = async (request: CallToolRequest) => {
       `Invalid project path: ${validation.error}`
     );
   }
+  const resolvedPath = validation.resolvedPath!;
 
-  const ctx = contextManager.getContext(projectPath);
+  const ctx = contextManager.getContext(resolvedPath);
 
   try {
-    const results = await searchDocContent(ctx, projectPath, query);
+    const results = await searchDocContent(ctx, resolvedPath, query);
 
     return {
       content: [
@@ -68,13 +69,14 @@ export const getRelatedDocs = async (request: CallToolRequest) => {
       `Invalid project path: ${validation.error}`
     );
   }
+  const resolvedPath = validation.resolvedPath!;
 
-  validateDocFile(docFile, projectPath);
+  validateDocFile(docFile, resolvedPath);
 
-  const ctx = contextManager.getContext(projectPath);
+  const ctx = contextManager.getContext(resolvedPath);
 
   try {
-    const related = await findRelatedDocs(ctx, docFile, projectPath);
+    const related = await findRelatedDocs(ctx, docFile, resolvedPath);
     const metadata = ctx.state.metadata[docFile];
 
     return {

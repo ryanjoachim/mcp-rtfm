@@ -54,6 +54,8 @@ export class ProjectContext {
     try {
       await fs.mkdir(statePath, { recursive: true });
 
+      this.state.lastPersistedAt = new Date().toISOString();
+
       await fs.writeFile(
         `${statePath}/metadata.json`,
         JSON.stringify(this.state.metadata, null, 2),
@@ -67,7 +69,11 @@ export class ProjectContext {
         "utf8"
       );
 
-      this.state.lastPersistedAt = new Date().toISOString();
+      await fs.writeFile(
+        `${statePath}/completion.json`,
+        JSON.stringify({ lastPersistedAt: this.state.lastPersistedAt }),
+        "utf8"
+      );
     } catch (error) {
       logger.error("persistence", "Failed to save state to disk", error);
     }
@@ -124,6 +130,8 @@ export class ProjectContext {
   }
 }
 
+const MAX_CONTEXTS = 50;
+
 // Singleton manager that holds one ProjectContext per project path
 export class ProjectContextManager {
   private contexts = new Map<string, ProjectContext>();
@@ -131,6 +139,12 @@ export class ProjectContextManager {
   getContext(projectPath: string): ProjectContext {
     let ctx = this.contexts.get(projectPath);
     if (!ctx) {
+      if (this.contexts.size >= MAX_CONTEXTS) {
+        const firstKey = this.contexts.keys().next().value;
+        if (firstKey !== undefined) {
+          this.contexts.delete(firstKey);
+        }
+      }
       ctx = new ProjectContext(projectPath);
       this.contexts.set(projectPath, ctx);
     }

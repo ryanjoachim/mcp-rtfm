@@ -86,7 +86,7 @@ server.setRequestHandler(ListToolsRequestSchema, async () => {
       },
       {
         name: "update_doc",
-        description: "Update a specific documentation file. Provide either 'content' for a full replacement, or 'searchContent' and 'replaceContent' for a targeted diff (replaces the first occurrence only).",
+        description: "Update a specific documentation file. Must provide either 'content' for a full replacement, or both 'searchContent' and 'replaceContent' for a targeted diff (replaces the first occurrence only). Providing only one of searchContent/replaceContent is invalid.",
         inputSchema: {
           type: "object",
           properties: {

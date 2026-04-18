@@ -28,8 +28,9 @@ export const readDoc = async (request: CallToolRequest) => {
       `Invalid project path: ${validation.error}`
     );
   }
+  const resolvedPath = validation.resolvedPath!;
 
-  const filePath = validateDocFile(docFile, projectPath);
+  const filePath = validateDocFile(docFile, resolvedPath);
 
   try {
     const content = await fs.readFile(filePath, "utf8");
@@ -59,10 +60,11 @@ export const updateDoc = async (request: CallToolRequest) => {
       `Invalid project path: ${validation.error}`
     );
   }
+  const resolvedPath = validation.resolvedPath!;
 
-  const filePath = validateDocFile(docFile, projectPath);
+  const filePath = validateDocFile(docFile, resolvedPath);
 
-  const ctx = contextManager.getContext(projectPath);
+  const ctx = contextManager.getContext(resolvedPath);
 
   try {
 

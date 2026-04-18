@@ -15,7 +15,7 @@ import {
 import { logger } from "../logger.js";
 import { analyzeAndIndexDoc } from "../content.js";
 import { generatePreFilledContent, clearSignatureCache } from "../project.js";
-import { validateProjectPath } from "../validation.js";
+import { validateProjectPath, validateDocFile } from "../validation.js";
 import { CACHE_TTL } from "../types.js";
 import { AnalyzeProjectSchema } from "../schemas.js";
 
@@ -52,8 +52,7 @@ async function handleInitMode(projectPath: string) {
 // ---------------------------------------------------------------------------
 
 async function enhanceDocFile(ctx: ReturnType<typeof contextManager.getContext>, doc: string, projectPath: string) {
-  const docsPath = getDocsPath(projectPath);
-  const filePath = `${docsPath}/${doc}`;
+  const filePath = validateDocFile(doc, projectPath);
   const content = await fs.readFile(filePath, "utf8");
 
   const { relatedDocs } = await analyzeAndIndexDoc(ctx, doc, filePath, content, projectPath);
@@ -169,19 +168,20 @@ export const analyzeProject = async (request: CallToolRequest) => {
   if (!validation.isValid) {
     throw new McpError(ErrorCode.InvalidParams, `Invalid project path: ${validation.error}`);
   }
+  const resolvedPath = validation.resolvedPath!;
 
   try {
     let result: Record<string, unknown>;
 
     switch (mode) {
       case "init":
-        result = await handleInitMode(projectPath);
+        result = await handleInitMode(resolvedPath);
         break;
       case "analyze":
-        result = await handleAnalyzeMode(projectPath, initDocs);
+        result = await handleAnalyzeMode(resolvedPath, initDocs);
         break;
       case "reset":
-        result = await handleResetMode(projectPath);
+        result = await handleResetMode(resolvedPath);
         break;
     }
 
