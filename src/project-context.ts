@@ -82,7 +82,10 @@ export class ProjectContext {
 
       try {
         const metadataContent = await fs.readFile(`${statePath}/metadata.json`, "utf8");
-        this.state.metadata = JSON.parse(metadataContent);
+        const parsed = JSON.parse(metadataContent);
+        if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+          this.state.metadata = parsed as Record<string, DocMetadata>;
+        }
       } catch (error) {
         logger.warn("persistence", "Failed to load metadata", error);
       }
@@ -91,10 +94,12 @@ export class ProjectContext {
         const searchIndexContent = await fs.readFile(`${statePath}/search-index.json`, "utf8");
         const searchIndexDump = JSON.parse(searchIndexContent);
 
-        if (searchIndexDump && searchIndexDump.documents) {
+        if (searchIndexDump && typeof searchIndexDump === "object" && searchIndexDump.documents && typeof searchIndexDump.documents === "object") {
           this.searchEngine.removeAll();
           for (const [docId, docData] of Object.entries(searchIndexDump.documents)) {
-            this.searchEngine.add({ id: docId, ...(docData as object) });
+            if (typeof docId === "string" && typeof docData === "object" && docData !== null) {
+              this.searchEngine.add({ id: docId, ...(docData as object) });
+            }
           }
         }
       } catch (error) {
@@ -104,7 +109,9 @@ export class ProjectContext {
       try {
         const completionContent = await fs.readFile(`${statePath}/completion.json`, "utf8");
         const loadedCompletion = JSON.parse(completionContent);
-        this.state.lastPersistedAt = loadedCompletion.lastPersistedAt;
+        if (typeof loadedCompletion === "object" && loadedCompletion !== null) {
+          this.state.lastPersistedAt = loadedCompletion.lastPersistedAt;
+        }
       } catch (error) {
         logger.warn("persistence", "Failed to load completion data", error);
       }

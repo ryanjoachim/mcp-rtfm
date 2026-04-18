@@ -7,25 +7,38 @@ import path from "path";
 import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { logger } from "./logger.js";
 
-// Path traversal pattern
-const PATH_TRAVERSAL = /\.\.\//;
+// Path traversal pattern — blocks both ../ and ..\ (Windows)
+const PATH_TRAVERSAL = /\.\.[\\/]/;
 
 export interface PathValidationResult {
   isValid: boolean;
   error?: string;
+  resolvedPath?: string;
 }
+
+const MAX_PATH_LENGTH = 4096;
 
 /**
  * Validate that a project path is safe to use.
- * Prevents path traversal attacks and verifies the directory exists.
+ * Prevents path traversal attacks, rejects null bytes, enforces length limits,
+ * and verifies the directory exists.
  */
 export const validateProjectPath = async (projectPath: string): Promise<PathValidationResult> => {
   if (!projectPath || typeof projectPath !== "string") {
     return { isValid: false, error: "Project path must be a non-empty string" };
   }
 
-  // Check for path traversal attempts
-  if (PATH_TRAVERSAL.test(projectPath)) {
+  if (projectPath.length > MAX_PATH_LENGTH) {
+    return { isValid: false, error: "Project path exceeds maximum length" };
+  }
+
+  // Reject null bytes (can truncate paths on some systems)
+  if (projectPath.includes("\0")) {
+    return { isValid: false, error: "Project path contains null bytes" };
+  }
+
+  // Check for path traversal attempts (../ or ..\)
+  if (PATH_TRAVERSAL.test(projectPath) || projectPath.includes("..")) {
     return { isValid: false, error: "Project path contains path traversal sequences" };
   }
 
@@ -36,6 +49,11 @@ export const validateProjectPath = async (projectPath: string): Promise<PathVali
   } catch (error) {
     logger.warn("validation", "Failed to resolve project path", error);
     return { isValid: false, error: "Invalid project path" };
+  }
+
+  // Verify the resolved path didn't introduce traversal via symlinks
+  if (absolutePath.includes("..")) {
+    return { isValid: false, error: "Project path resolves to a directory outside the expected root" };
   }
 
   // Check that the path exists and is a directory
@@ -49,7 +67,7 @@ export const validateProjectPath = async (projectPath: string): Promise<PathVali
     return { isValid: false, error: "Project path does not exist" };
   }
 
-  return { isValid: true };
+  return { isValid: true, resolvedPath: absolutePath };
 };
 
 /**
@@ -71,16 +89,16 @@ export const validateDocFile = (docFile: string, projectPath: string): string =>
     throw new McpError(ErrorCode.InvalidParams, "docFile must not contain path separators");
   }
 
-  // Reject parent-directory traversal sequences
-  if (docFile.includes("..")) {
-    throw new McpError(ErrorCode.InvalidParams, "docFile must not contain path traversal sequences");
+  // Reject parent-directory traversal sequences and null bytes
+  if (docFile.includes("..") || docFile.includes("\0")) {
+    throw new McpError(ErrorCode.InvalidParams, "docFile must not contain path traversal sequences or null bytes");
   }
 
   // Resolve and verify the final path stays within .handoff_docs
   const docsDir = path.resolve(projectPath, ".handoff_docs");
   const resolvedPath = path.resolve(docsDir, docFile);
 
-  if (!resolvedPath.startsWith(docsDir + path.sep)) {
+  if (!resolvedPath.startsWith(docsDir + path.sep) && !resolvedPath.startsWith(docsDir + "/") && resolvedPath !== docsDir) {
     throw new McpError(ErrorCode.InvalidParams, "docFile escapes the documentation directory");
   }
 

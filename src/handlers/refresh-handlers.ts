@@ -159,7 +159,8 @@ async function handleSyncMode(ctx: ReturnType<typeof contextManager.getContext>,
     for (const suggestion of suggestions) {
       if (targetDocs && !targetDocs.includes(suggestion.docFile)) continue;
 
-      const docPath = `${docsPath}/${suggestion.docFile}`;
+      // Validate docFile stays within .handoff_docs before writing
+      const docPath = validateDocFile(suggestion.docFile, projectPath);
       try {
         const applied = await applySuggestion(docPath, suggestion);
         if (applied) {
