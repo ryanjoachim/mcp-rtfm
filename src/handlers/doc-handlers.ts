@@ -8,8 +8,8 @@ import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
 import { contextManager } from "../project-context.js";
 import { analyzeContent, categorizeContent, updateMetadata, updateSearchIndex } from "../content.js";
-import { validateProjectPath } from "../validation.js";
-import { handleToolError, freshTimestamp, getDocsPath } from "../utils.js";
+import { validateProjectPath, validateDocFile } from "../validation.js";
+import { handleToolError, freshTimestamp } from "../utils.js";
 import { logger } from "../logger.js";
 import { ReadDocSchema, UpdateDocSchema } from "../schemas.js";
 
@@ -29,8 +29,9 @@ export const readDoc = async (request: CallToolRequest) => {
     );
   }
 
+  const filePath = validateDocFile(docFile, projectPath);
+
   try {
-    const filePath = `${getDocsPath(projectPath)}/${docFile}`;
     const content = await fs.readFile(filePath, "utf8");
 
     return {
@@ -59,10 +60,11 @@ export const updateDoc = async (request: CallToolRequest) => {
     );
   }
 
+  const filePath = validateDocFile(docFile, projectPath);
+
   const ctx = contextManager.getContext(projectPath);
 
   try {
-    const filePath = `${getDocsPath(projectPath)}/${docFile}`;
 
     // Read current file content
     let fileContent = await fs.readFile(filePath, "utf8");

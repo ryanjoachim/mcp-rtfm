@@ -4,6 +4,7 @@
 
 import * as fs from "fs/promises";
 import path from "path";
+import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 import { logger } from "./logger.js";
 
 // Path traversal pattern
@@ -49,6 +50,41 @@ export const validateProjectPath = async (projectPath: string): Promise<PathVali
   }
 
   return { isValid: true };
+};
+
+/**
+ * Validate that a docFile parameter is safe and resolve it to an absolute path
+ * within the .handoff_docs directory. Prevents path traversal (CWE-22).
+ *
+ * @param docFile    The user-supplied doc filename (e.g. "techStack.md")
+ * @param projectPath The resolved absolute project path
+ * @returns The safe, resolved absolute path to the doc file
+ * @throws McpError if docFile contains traversal sequences or escapes the docs dir
+ */
+export const validateDocFile = (docFile: string, projectPath: string): string => {
+  if (!docFile || typeof docFile !== "string") {
+    throw new McpError(ErrorCode.InvalidParams, "docFile must be a non-empty string");
+  }
+
+  // Reject path separators — docFile must be a simple filename, not a path
+  if (/[\/\\]/.test(docFile)) {
+    throw new McpError(ErrorCode.InvalidParams, "docFile must not contain path separators");
+  }
+
+  // Reject parent-directory traversal sequences
+  if (docFile.includes("..")) {
+    throw new McpError(ErrorCode.InvalidParams, "docFile must not contain path traversal sequences");
+  }
+
+  // Resolve and verify the final path stays within .handoff_docs
+  const docsDir = path.resolve(projectPath, ".handoff_docs");
+  const resolvedPath = path.resolve(docsDir, docFile);
+
+  if (!resolvedPath.startsWith(docsDir + path.sep)) {
+    throw new McpError(ErrorCode.InvalidParams, "docFile escapes the documentation directory");
+  }
+
+  return resolvedPath;
 };
 
 // ============================================================================

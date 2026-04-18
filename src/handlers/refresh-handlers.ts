@@ -17,7 +17,7 @@ import {
   isGitRepository, detectGitChanges, detectFileChanges,
   generateRefreshSuggestions, calculateSummary, applySuggestion
 } from "../changes.js";
-import { validateProjectPath } from "../validation.js";
+import { validateProjectPath, validateDocFile } from "../validation.js";
 import { logger } from "../logger.js";
 import { RefreshDocumentationSchema } from "../schemas.js";
 import type { DocMetadata } from "../types.js";
@@ -60,6 +60,10 @@ export const refreshDocumentation = async (request: CallToolRequest) => {
 async function handleRefreshAnalyzeMode(ctx: ReturnType<typeof contextManager.getContext>, projectPath: string, options: { docFile?: string; metadata?: Partial<Pick<DocMetadata, "title" | "category" | "tags">> }) {
   const { docFile, metadata } = options;
 
+  if (docFile) {
+    validateDocFile(docFile, projectPath);
+  }
+
   const signature = await detectProjectSignature(projectPath);
   const docsPath = getDocsPath(projectPath);
   const docsToUpdate = docFile ? [docFile] : await getActualDocs(docsPath);
@@ -67,7 +71,7 @@ async function handleRefreshAnalyzeMode(ctx: ReturnType<typeof contextManager.ge
   const results: Array<{ file: string; updated: boolean; message: string }> = [];
 
   for (const doc of docsToUpdate) {
-    const filePath = `${docsPath}/${doc}`;
+    const filePath = validateDocFile(doc, projectPath);
     let content: string;
     try {
       content = await fs.readFile(filePath, "utf8");

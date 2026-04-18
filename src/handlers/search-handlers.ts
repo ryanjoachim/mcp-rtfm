@@ -7,7 +7,7 @@ import { McpError, ErrorCode } from "@modelcontextprotocol/sdk/types.js";
 
 import { contextManager } from "../project-context.js";
 import { searchDocContent, findRelatedDocs } from "../content.js";
-import { validateProjectPath } from "../validation.js";
+import { validateProjectPath, validateDocFile } from "../validation.js";
 import { handleToolError } from "../utils.js";
 import { SearchDocsSchema, GetRelatedDocsSchema } from "../schemas.js";
 
@@ -68,6 +68,8 @@ export const getRelatedDocs = async (request: CallToolRequest) => {
       `Invalid project path: ${validation.error}`
     );
   }
+
+  validateDocFile(docFile, projectPath);
 
   const ctx = contextManager.getContext(projectPath);
 
